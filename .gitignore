@@ -31,3 +31,6 @@ report/*.fls
 .vscode/
 .idea/
 .DS_Store
+
+# Code zips for manual Colab/Kaggle upload
+/dist/

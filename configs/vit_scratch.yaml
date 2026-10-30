@@ -1,0 +1,10 @@
+# Optional: ViT-Tiny (patch 8) trained from scratch at 64 px.
+model: vit_scratch
+pretrained: false
+epochs: 100
+batch_size: 64
+lr: 1.0e-3
+weight_decay: 0.05
+warmup_frac: 0.1
+patience: 20
+aug: weak

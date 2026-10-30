@@ -1,7 +1,7 @@
 # Project status (P21)
 
 **Last updated:** 2026-10-30
-**Current phase:** Phase 2 code done; waiting on a Colab/Kaggle test run, which needs the repo URL. Phase 3 is next.
+**Current phase:** Phase 3 code done. The ResNet-50 baseline on Colab is blocked until the code is on GitHub.
 
 The plan and its task lists are in [phases.md](phases.md). Update this file whenever a phase task finishes or a decision is made.
 
@@ -11,7 +11,7 @@ The plan and its task lists are in [phases.md](phases.md). Update this file when
 |---|---|---|---|
 | 1 | Repository, download, inspection, splits | ✅ Done | 2026-10-30 |
 | 2 | Preprocessing, augmentation, loaders | ✅ Done (local), Colab test pending | 2026-10-30 |
-| 3 | Models and working baseline | ⏳ Next | |
+| 3 | Models and working baseline | ⚠️ Code done; Colab baseline blocked (no repo yet) | |
 | 4 | Supervised label-efficiency runs (54) | ⬜ Not started | |
 | 5 | Pseudo-labelling (24 runs) | ⬜ Not started | |
 | 6 | Evaluation | ⬜ Not started | |
@@ -30,6 +30,19 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 | *(optional)* Band ablation | n/a | 0 |
 
 ## Change log
+
+### 2026-10-30: Phase 3 code finished (branch `feat/models`)
+- Models: `scratch_cnn` (2.8M parameters), `resnet50` (23.5M), `vit_small` (21.7M) and the optional `vit_scratch` (5.4M), each for 3 or 13 input channels. Models that need 224 px upsample on the GPU.
+- 13-band first layer: RGB filters go to B04/B03/B02, the other bands get the mean filter, and everything is scaled by 3/13. A `zero` init is available as an ablation. Details in `docs/MODELS.md`.
+- Training engine and `scripts/train.py`:
+  - AdamW, warm-up + cosine schedule, mixed precision, early stopping on validation macro-F1
+  - full run logging, including predictions on the unlabelled pool (the Phase 5 teacher)
+  - finished runs are skipped when re-launched
+- 38 tests pass. Smoke test with pretrained weights: 8/8 model × input combinations memorise a batch.
+- Local CPU run (scratch CNN, RGB, 10% labels): validation accuracy 42% → 71% in 5 epochs, so the full loop learns.
+- Code zip option for Colab without GitHub: `scripts/make_code_zip.sh` creates `dist/p21_code.zip` and records the commit, so `env.json` still names it.
+- Bug fixed: YAML read `3e-4` as a string; config values are now converted to the field's type.
+- Note: the laptop is short on memory (2 GB of swap in use). The first epoch of a 13-band run on CPU took about 18 minutes; later epochs took about 45 s. The laptop is for checks only.
 
 ### 2026-10-30: Phase 2 code finished (branch `feat/data-loaders`)
 - Packed image caches: `data/cache/rgb.npy` (27000×3×64×64 `uint8`, 0.33 GB) and `ms.npy` (27000×13×64×64 `uint16`, 2.88 GB). Rows follow the order of `split.csv`. A cache built for a different split is rejected.
@@ -74,6 +87,6 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 
 ## Next actions
 
-1. Phase 3: the three models (CNN from scratch, ResNet-50 and ViT-Small with 13-channel input layers), the training loop and run logging.
-2. Overfit-one-batch smoke test on CPU, then the ResNet-50 RGB 100% baseline on Colab.
-3. Push to GitHub once it is confirmed, then run `notebooks/colab_setup.ipynb` on Colab and Kaggle.
+1. **Baseline now (no GitHub needed):** upload `dist/p21_code.zip` to Colab and run `notebooks/colab_setup.ipynb`; it covers setup, the smoke test and the ResNet-50 baseline. Then copy `results/runs/resnet50_rgb_100pct_seed0/` back here, or report the numbers.
+2. GitHub repo (account and repo name from the user) for the group workflow.
+3. Phase 4 prep: choose the training budget rule, write a grid runner script that resumes after a disconnect, do light tuning on the validation set.

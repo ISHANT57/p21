@@ -51,19 +51,20 @@ Legend: `[x]` done · `[ ]` to do · *(optional)* = only if time and compute all
 
 **Goal:** three model families run end to end and give one sanity-check result.
 
-- [ ] CNN from scratch (small ResNet-style network, `in_ch` = 3 or 13, 64 px input)
-- [ ] ImageNet CNN (ResNet-50 from torchvision/timm), first conv widened to 13 channels:
+- [x] CNN from scratch (`scratch_cnn`: small ResNet-style network, 2.8M params, 3 or 13 channels, 64 px input)
+- [x] ImageNet CNN (`resnet50`, timm `resnet50.a1_in1k`), first conv widened to 13 channels:
   - copy the pretrained RGB filters into the B04/B03/B02 positions
   - set each other band's filters to the mean of the RGB filters
   - scale all filters by 3/13 so activations keep about the same size
-  - document this in `docs/MODELS.md`, including its limitations
-- [ ] ViT-Small (timm, pretrained, 224 px), patch embedding widened to 13 channels the same way
-- [ ] *(optional)* Small ViT from scratch at 64 px, patch size 8
-- [ ] Training loop: AdamW, cosine schedule with warm-up, mixed precision (AMP), early stopping on validation macro-F1, best checkpoint saved
-- [ ] Run logging: `config.yaml`, `env.json` (versions, GPU, git commit), `metrics.json`, per-epoch CSV
-- [ ] YAML configs in `configs/`, one per model; command-line overrides for input, fraction and seed
-- [ ] Smoke test: overfit one batch on CPU for each model and input type
-- [ ] **Baseline:** ResNet-50, RGB, 100% labels on Colab. Target ≥ 97% test accuracy (the paper reports about 98.6%).
+  - documented in `docs/MODELS.md`, including its limitations; `init_mode: zero` is available as an ablation
+- [x] ViT-Small (`vit_small`, timm `vit_small_patch16_224.augreg_in21k_ft_in1k`, 224 px), patch embedding widened to 13 channels the same way
+- [x] *(optional)* Small ViT from scratch (`vit_scratch`: ViT-Tiny, patch 8, 64 px). The code exists; whether to run it is decided in Phase 4.
+- [x] Training loop: AdamW, cosine schedule with warm-up, mixed precision (AMP), early stopping on validation macro-F1. The best weights are kept in memory; `best.pt` is saved only on request.
+- [x] Run logging: `config.yaml`, `env.json` (versions, GPU, git commit), `history.csv`, `metrics.json`, plus predictions for val, test and the unlabelled pool (`preds_*.npz`)
+- [x] YAML configs in `configs/`, one per model; `scripts/train.py` takes `--modality/--fraction/--seed` and `--set key=value` overrides; finished runs are skipped
+- [x] Smoke test (`scripts/smoke_test.py`): every model × input type memorises one batch on CPU with pretrained weights (8/8 pass)
+- [x] Local CPU check: scratch CNN, RGB, 10% labels; validation accuracy 42% → 71% in 5 epochs
+- [ ] **Baseline:** ResNet-50, RGB, 100% labels on Colab. Target ≥ 97% test accuracy (the paper reports about 98.6%). **Needs the GitHub repo** (or a manual upload) to run on Colab.
 
 **Done when:** the baseline is reproduced and every model passes the smoke test with both input types.
 

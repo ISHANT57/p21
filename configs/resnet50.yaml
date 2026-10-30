@@ -1,0 +1,12 @@
+# ImageNet-pretrained ResNet-50 (timm resnet50.a1_in1k), input upsampled to 224 px on the GPU.
+# For 13-band input conv1 is widened with init_mode (see docs/MODELS.md).
+model: resnet50
+pretrained: true
+init_mode: mean
+epochs: 30
+batch_size: 64
+lr: 5.0e-4
+weight_decay: 0.05
+warmup_frac: 0.05
+patience: 10
+aug: weak

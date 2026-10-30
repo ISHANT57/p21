@@ -1,0 +1,11 @@
+# Small ResNet-style CNN trained from scratch at 64 px.
+# Starting hyper-parameters; tuned lightly on the validation set in Phase 4, then frozen.
+model: scratch_cnn
+pretrained: false
+epochs: 60
+batch_size: 64
+lr: 2.0e-3
+weight_decay: 0.05
+warmup_frac: 0.05
+patience: 15
+aug: weak
