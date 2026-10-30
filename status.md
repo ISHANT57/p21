@@ -1,7 +1,7 @@
 # Project status (P21)
 
 **Last updated:** 2026-10-30
-**Current phase:** Phase 5 code done. Everything that can be built and checked on the CPU is ready. Waiting on GPU runs: the baseline, then tuning, the 54-run grid, and the 24 pseudo-label students.
+**Current phase:** Phase 6 code done. All code that does not need a GPU is in place. Waiting on GPU runs: the baseline, tuning, the 54-run grid, and 30 pseudo-label students. Phase 7 (figures and the report skeleton) can start now.
 
 The plan and its task lists are in [phases.md](phases.md). Update this file whenever a phase task finishes or a decision is made.
 
@@ -14,7 +14,7 @@ The plan and its task lists are in [phases.md](phases.md). Update this file when
 | 3 | Models and working baseline | ⏳ Code done; baseline waiting for the user's Colab run (zip ready) | |
 | 4 | Supervised label-efficiency runs (54) | ⏳ Tooling done; GPU runs pending | |
 | 5 | Pseudo-labelling (24 runs) | ⏳ Code done; GPU runs pending (they need the Phase 4 teachers) | |
-| 6 | Evaluation | ⬜ Not started | |
+| 6 | Evaluation | ⏳ Code done; waiting for real runs | |
 | 7 | Figures, tables, README, report | ⬜ Not started | |
 
 States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
@@ -31,6 +31,14 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 | *(optional)* Band ablation | n/a | 0 |
 
 ## Change log
+
+### 2026-10-30: Phase 6 code finished (branch `feat/evaluation`)
+- `scripts/evaluate.py` rebuilds every metric from the saved predictions:
+  - accuracy, macro-F1, per-class metrics, ECE, with a cross-check against `metrics.json`
+  - confusion matrices averaged over seeds, and the top confused class pairs
+  - paired comparisons matched on seed, with 95% bootstrap intervals on the test set
+  - a misclassified-image grid
+- Method: `docs/EVALUATION.md`. Tests use fake run folders built from the real test ids. 58 tests pass.
 
 ### 2026-10-30: Phase 5 code finished (branch `feat/pseudo-label`)
 - `src/eurosat_le/ssl/`:
@@ -117,4 +125,4 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 3. After the baseline: the tuning sweep (notebook section 6, 9 runs), then freeze `lr` in `configs/*.yaml` and commit.
 4. Main grid: 54 runs, which can be split across Colab, Kaggle and group members with `--shard`.
 5. Pseudo-label students: `run_grid.py --plan pl` (24), plus `--plan pl --balance --models resnet50 --fractions 0.01` (6); notebook section 7.
-6. Meanwhile, offline: Phase 6 evaluation scripts (metrics, confusion matrices, paired comparisons from saved predictions), then the Phase 7 figure scripts and report skeleton.
+6. Meanwhile, offline: the Phase 7 figure scripts (label-efficiency curves, RGB-vs-13-band gains, confusion matrices, per-class F1, pseudo-label gains) and the IEEE LaTeX report skeleton.
