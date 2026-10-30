@@ -33,6 +33,7 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   ├── models/              # scratch CNN, ResNet-50, ViT-Small, 13-band input adaptation
 │   ├── train/               # TrainConfig + training engine
 │   ├── eval/                # metrics
+│   ├── ssl/                 # pseudo-labelling: threshold, selection, student runs
 │   └── data/
 │       ├── download.py      # hash-verified download + safe extraction
 │       ├── index.py         # sample index, RGB/MS id consistency check
@@ -48,7 +49,8 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   ├── build_cache.py
 │   ├── smoke_test.py        # overfit one batch per model x input
 │   ├── train.py             # one training run
-│   ├── run_grid.py          # tuning sweep / 54-run grid, resumable, shardable
+│   ├── run_grid.py          # tuning sweep / 54-run grid / pseudo-label students; resumable
+│   ├── pseudo_label.py      # one pseudo-label student from a teacher run
 │   └── collect_results.py   # runs -> summary tables
 ├── configs/                 # one YAML per model
 ├── notebooks/colab_setup.ipynb  # Colab/Kaggle: clone, install, data, checks
@@ -57,7 +59,7 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   ├── dataset_inspection/  # committed dataset figures + summary
 │   └── runs/                # per-run outputs (git-ignored)
 ├── tests/                   # pytest unit tests (no dataset needed)
-├── docs/                    # DATA.md (data + splits), MODELS.md (models + training)
+├── docs/                    # DATA.md (data + splits), MODELS.md (models + training), SSL.md (pseudo-labelling)
 ├── phases.md                # phase plan + task checklists
 ├── status.md                # progress, findings, open decisions
 ├── requirements.txt         # minimum versions (Colab/Kaggle friendly)
@@ -116,10 +118,11 @@ python scripts/train.py --config configs/vit_small.yaml --modality ms --fraction
 python scripts/run_grid.py --plan tune                          # LR sweep (validation only), 9 runs
 python scripts/run_grid.py --plan main --dry-run                # 54-run grid: what is done / to do
 python scripts/run_grid.py --plan main --models resnet50 --max-hours 11   # resumable; --shard k/n to split
+python scripts/run_grid.py --plan pl                            # pseudo-label students (Phase 5)
 python scripts/collect_results.py                               # tables in results/summary/
 ```
 
-Outputs go to `results/runs/<model>_<input>_<pct>pct_seed<s>/`. See [docs/MODELS.md](docs/MODELS.md) for the models, how the first layer is set up for 13 bands, and the training details.
+Outputs go to `results/runs/<model>_<input>_<pct>pct_seed<s>/`. Pseudo-labelling is described in [docs/SSL.md](docs/SSL.md). See [docs/MODELS.md](docs/MODELS.md) for the models, how the first layer is set up for 13 bands, and the training details.
 
 ## Contributing
 

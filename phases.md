@@ -95,12 +95,16 @@ Grid: 3 models × 2 input types × 3 label fractions × 3 seeds = **54 runs** (+
 
 **Goal:** measure how much the unlabelled training images help at 1% and 10% labels. Reported **separately** from the supervised results.
 
-- [ ] Pseudo-labelling: the Phase 4 model (teacher) labels the unlabelled pool; keep predictions above a confidence threshold τ; retrain a student on labelled + pseudo-labelled images
-- [ ] Choose τ on the validation set only; *(optional)* class-balanced thresholds, 2 rounds
-- [ ] Analysis only: pseudo-label accuracy and coverage, measured against the hidden train labels
-- [ ] Scope: best pretrained model and the scratch CNN × RGB/13-band × 1%/10% × 3 seeds = 24 runs (extend if compute allows)
-- [ ] *(optional)* FixMatch for one model, only if Phase 5 stays on schedule
-- [ ] Gather → `results/summary/semi_supervised.csv`
+- [x] Pseudo-labelling code (`src/eurosat_le/ssl/`). The Phase 4 run is the teacher; its saved predictions on the unlabelled pool are filtered by τ; a student (same model, same starting weights, same budget rule) trains on labelled + pseudo-labelled images.
+- [x] τ chosen on the validation set only: the smallest τ at which the teacher's confident val predictions are ≥ 95% correct. *(optional)* class-balanced selection (`--balance`) and more rounds (`--teacher <run>_pl` gives `_pl2`) are supported.
+- [x] Analysis only: pseudo-label accuracy (overall and per class) and coverage, measured against the hidden train labels after training (`pseudo_label_quality.json`)
+- [x] Runner: `run_grid.py --plan pl` (24 students; each waits until its teacher has finished) and `scripts/pseudo_label.py --teacher <run>` for a single student
+- [x] Collector: `results/summary/semi_supervised.csv`, with each student paired with its own supervised teacher (same seed) and the change in test macro-F1
+- [ ] Choose the pretrained model for the scope (default `resnet50`; switch in `PL_MODELS` in `src/eurosat_le/train/grid.py` if ViT-Small wins in Phase 4)
+- [ ] Run the 24 default students on GPU: scratch CNN + best pretrained model × RGB/13-band × 1%/10% × 3 seeds
+- [ ] Class-balanced variant (decided by the user on 2026-10-30): pretrained model × RGB/13-band × 1% × 3 seeds = 6 runs (`--plan pl --balance`, students named `*_plb`)
+- [ ] *(optional)* second self-training round for one model
+- [ ] *(optional)* FixMatch for one model, only if Phase 5 stays on schedule (the weak/strong unlabelled loader already exists)
 
 **Done when:** a separate table and figure show supervised vs pseudo-label results with matched settings.
 

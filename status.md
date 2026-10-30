@@ -1,7 +1,7 @@
 # Project status (P21)
 
 **Last updated:** 2026-10-30
-**Current phase:** Phase 4 tooling done. Waiting on GPU runs: the Phase 3 baseline, then the tuning sweep, then the 54-run grid.
+**Current phase:** Phase 5 code done. Everything that can be built and checked on the CPU is ready. Waiting on GPU runs: the baseline, then tuning, the 54-run grid, and the 24 pseudo-label students.
 
 The plan and its task lists are in [phases.md](phases.md). Update this file whenever a phase task finishes or a decision is made.
 
@@ -13,7 +13,7 @@ The plan and its task lists are in [phases.md](phases.md). Update this file when
 | 2 | Preprocessing, augmentation, loaders | ✅ Done (local), Colab test pending | 2026-10-30 |
 | 3 | Models and working baseline | ⏳ Code done; baseline waiting for the user's Colab run (zip ready) | |
 | 4 | Supervised label-efficiency runs (54) | ⏳ Tooling done; GPU runs pending | |
-| 5 | Pseudo-labelling (24 runs) | ⬜ Not started | |
+| 5 | Pseudo-labelling (24 runs) | ⏳ Code done; GPU runs pending (they need the Phase 4 teachers) | |
 | 6 | Evaluation | ⬜ Not started | |
 | 7 | Figures, tables, README, report | ⬜ Not started | |
 
@@ -26,10 +26,23 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 | Supervised, RGB | 27 | 0 |
 | Supervised, 13-band | 27 | 0 |
 | Pseudo-labelling | 24 | 0 |
+| Pseudo-labelling, class-balanced | 6 | 0 |
 | *(optional)* ViT from scratch | 18 | 0 |
 | *(optional)* Band ablation | n/a | 0 |
 
 ## Change log
+
+### 2026-10-30: Phase 5 code finished (branch `feat/pseudo-label`)
+- `src/eurosat_le/ssl/`:
+  - τ is chosen on validation as the smallest τ with confident-prediction precision ≥ 95%.
+  - Pool images above τ get the teacher's class as their pseudo-label.
+  - A student with the same configuration trains on labelled + pseudo-labelled images.
+  - Optional per-class cap (`--balance`) and extra rounds (`_pl2`).
+- Pseudo-label accuracy against the hidden labels is computed only after training, for analysis (`pseudo_label_quality.json`).
+- `run_grid.py --plan pl` plans 24 students, each waiting for its teacher. `scripts/pseudo_label.py` runs a single student. `collect_results.py` writes `semi_supervised.csv`, with each student paired with its teacher by seed.
+- Method and safeguards: `docs/SSL.md`. 52 tests pass.
+- CPU check with a deliberately weak teacher (scratch CNN, 1%, 3 epochs, 61% test accuracy): τ = 0.98, validation precision 96.6%, actual pool pseudo-label accuracy **95.6%**. Validation estimated pseudo-label quality well.
+- Finding: the weak teacher's confident predictions fell in only 5 of 10 classes (Industrial 973, Residential 368, SeaLake 243, Pasture 69, HerbaceousVegetation 10). The first version of `--balance` would then have selected nothing. It now caps each class at its labelled-set share instead. Global-τ selection can skew the class mix a lot, so the class-balanced variant is worth running for at least one model.
 
 ### 2026-10-30: Phase 4 tooling finished (branch `feat/grid-runner`)
 - Budget rule (confirmed by the user): every run trains for `max(epochs × one pass over its labelled set, min_steps)` steps. Small-label epochs are stretched, so the number of validation checks is the same for every fraction. See `docs/MODELS.md`.
@@ -84,6 +97,7 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 - [ ] GitHub account, repository name and member access. **Nothing will be pushed until these are confirmed.**
 - [ ] Group members and who owns which area (see the CONTRIBUTING.md table)
 - [ ] Report template, page limit and deadline from the course
+- [x] Phase 5 scope: class-balanced variant added for the pretrained model at 1% (+6 runs, `*_plb`); decided on 2026-10-30
 - [x] Phase 4 budget rule confirmed by the user on 2026-10-30: `max(epochs × one pass, min_steps)` (see docs/MODELS.md)
 
 ## Risks
@@ -102,4 +116,5 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 2. GitHub repo (account and repo name from the user) for the group workflow.
 3. After the baseline: the tuning sweep (notebook section 6, 9 runs), then freeze `lr` in `configs/*.yaml` and commit.
 4. Main grid: 54 runs, which can be split across Colab, Kaggle and group members with `--shard`.
-5. Meanwhile, offline: Phase 5 pseudo-labelling code and Phase 6 evaluation scripts. Both run on saved predictions and can be tested on CPU.
+5. Pseudo-label students: `run_grid.py --plan pl` (24), plus `--plan pl --balance --models resnet50 --fractions 0.01` (6); notebook section 7.
+6. Meanwhile, offline: Phase 6 evaluation scripts (metrics, confusion matrices, paired comparisons from saved predictions), then the Phase 7 figure scripts and report skeleton.

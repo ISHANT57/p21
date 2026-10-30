@@ -8,6 +8,7 @@ Writes:
     results/summary/runs.csv         one row per finished run (main grid, tuning, extras)
     results/summary/supervised.csv   main grid: mean / std / n over seeds per model x input x fraction
     results/summary/tuning.csv       LR sweep, validation metrics only
+    results/summary/semi_supervised.csv  pseudo-label students vs their supervised teachers (paired by seed)
 """
 
 import argparse
@@ -29,12 +30,20 @@ def load_runs(runs_dir: Path) -> pd.DataFrame:
         m = json.loads(mpath.read_text())
         cfg = yaml.safe_load((mpath.parent / "config.yaml").read_text())
         env = json.loads((mpath.parent / "env.json").read_text())
-        row = {k: cfg[k] for k in ("model", "modality", "fraction", "seed", "name_suffix", "lr", "init_mode")}
+        row = {k: cfg.get(k) for k in ("model", "modality", "fraction", "seed", "name_suffix", "lr", "init_mode",
+                                       "teacher")}
+        row["name_suffix"] = row["name_suffix"] or ""
         row.update(run_name=m["run_name"], best_epoch=m["best_epoch"], epochs_run=m["epochs_run"],
                    train_min=m["train_seconds"] / 60, n_labelled=m["n_labelled"], device=env["device"],
                    git_commit=env["git_commit"][:7], val_acc=m["val"]["accuracy"], val_f1=m["val"]["macro_f1"])
         if "test" in m:
             row.update(test_acc=m["test"]["accuracy"], test_f1=m["test"]["macro_f1"])
+        row["n_pseudo"] = m.get("n_pseudo", 0)
+        qpath = mpath.parent / "pseudo_label_quality.json"
+        if qpath.exists():
+            row["pseudo_acc"] = json.loads(qpath.read_text())["accuracy"]
+            sel = json.loads((mpath.parent / "pseudo_label_selection.json").read_text())
+            row.update(tau=sel["tau"], pseudo_coverage=sel["n_selected"] / sel["pool_size"])
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -75,6 +84,25 @@ def main() -> None:
         print("\nTest macro-F1, mean ± std over seeds:")
         print(cell.pivot_table(index=["model", "modality"], columns="fraction", values="v", aggfunc="first")
               .to_string())
+
+    students = df[df["name_suffix"].str.match(r"^plb?\d*$")]
+    if not students.empty:
+        teach = df.set_index("run_name")
+        st = students[students["teacher"].isin(teach.index)].copy()
+        st["teacher_test_f1"] = teach.loc[st["teacher"], "test_f1"].to_numpy()
+        st["teacher_test_acc"] = teach.loc[st["teacher"], "test_acc"].to_numpy()
+        st["delta_f1"] = st["test_f1"] - st["teacher_test_f1"]
+        st["delta_acc"] = st["test_acc"] - st["teacher_test_acc"]
+        keys = ["model", "modality", "fraction", "name_suffix"]
+        agg = st.groupby(keys).agg(
+            n_seeds=("seed", "nunique"), supervised_f1=("teacher_test_f1", "mean"), pl_f1=("test_f1", "mean"),
+            delta_f1_mean=("delta_f1", "mean"), delta_f1_std=("delta_f1", "std"),
+            delta_f1_min=("delta_f1", "min"), delta_acc_mean=("delta_acc", "mean"),
+            tau_mean=("tau", "mean"), coverage_mean=("pseudo_coverage", "mean"), pseudo_acc_mean=("pseudo_acc", "mean"),
+        ).reset_index()
+        agg.to_csv(OUT / "semi_supervised.csv", index=False)
+        print("\nPseudo-labelling vs supervised teacher (test macro-F1, paired by seed):")
+        print(agg.to_string(index=False, float_format="%.4f"))
 
 
 if __name__ == "__main__":
