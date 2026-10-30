@@ -3,6 +3,7 @@
 model: scratch_cnn
 pretrained: false
 epochs: 60
+min_steps: 3000          # budget: max(epochs x one pass, min_steps) optimiser steps
 batch_size: 64
 lr: 2.0e-3
 weight_decay: 0.05

@@ -30,7 +30,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from eurosat_le.constants import REPO_ROOT, RESULTS_DIR
-from eurosat_le.data.datasets import make_dataset, unlabelled_ids
+from eurosat_le.data.datasets import labelled_ids, make_dataset, unlabelled_ids
 from eurosat_le.data.loaders import build_loaders
 from eurosat_le.data.splits import check_integrity
 from eurosat_le.eval.metrics import classification_metrics, summary
@@ -143,7 +143,8 @@ def run(cfg: TrainConfig, overwrite: bool = False, runs_dir: Path = RUNS_DIR) ->
     seed_everything(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     amp = cfg.amp and device.type == "cuda"
-    loaders = build_loaders(cfg.data_config())
+    n_lab = len(labelled_ids(cfg.fraction, cfg.seed))
+    loaders = build_loaders(cfg.data_config(cfg.resolve_steps_per_epoch(n_lab)))
     in_chans = 3 if cfg.modality == "rgb" else 13
     model = build_model(cfg.model, in_chans, pretrained=cfg.pretrained, init_mode=cfg.init_mode,
                         input_size=cfg.input_size).to(device)
@@ -156,7 +157,6 @@ def run(cfg: TrainConfig, overwrite: bool = False, runs_dir: Path = RUNS_DIR) ->
     scaler = torch.amp.GradScaler(device.type, enabled=amp)
     criterion = nn.CrossEntropyLoss(label_smoothing=cfg.label_smoothing)
 
-    n_lab = len(loaders["train"].dataset)
     print(f"[{cfg.run_name}] {count_params(model) / 1e6:.1f}M params, {n_lab} labelled, "
           f"{steps_per_epoch} steps/epoch x {cfg.epochs} epochs on {env['device']}")
 
@@ -190,13 +190,14 @@ def run(cfg: TrainConfig, overwrite: bool = False, runs_dir: Path = RUNS_DIR) ->
     if cfg.save_checkpoint:
         torch.save(best_state, run_dir / "best.pt")
     results = {"run_name": cfg.run_name, "best_epoch": best_epoch, "epochs_run": len(history),
-               "train_seconds": round(train_seconds, 1), "n_params": count_params(model), "n_labelled": n_lab}
-    for split in ("val", "test"):
+               "train_seconds": round(train_seconds, 1), "n_params": count_params(model), "n_labelled": n_lab,
+               "steps_per_epoch": steps_per_epoch, "total_steps_planned": total_steps}
+    for split in ("val", "test") if cfg.evaluate_test else ("val",):
         logits, y = predict(model, loaders[split], device, amp)
         _save_preds(run_dir / f"preds_{split}.npz", logits, y, loaders[split].dataset.ids)
         results[split] = classification_metrics(y, logits.argmax(1))
 
-    if cfg.fraction < 1.0:  # teacher predictions for pseudo-labelling (labels never loaded)
+    if cfg.fraction < 1.0 and cfg.evaluate_test:  # teacher predictions for pseudo-labelling (labels never loaded)
         pool = make_dataset(cfg.modality, unlabelled_ids(cfg.fraction, cfg.seed), labelled=False,
                             in_memory=cfg.in_memory)
         pool_loader = DataLoader(pool, batch_size=cfg.eval_batch_size, num_workers=cfg.num_workers)
@@ -204,7 +205,8 @@ def run(cfg: TrainConfig, overwrite: bool = False, runs_dir: Path = RUNS_DIR) ->
         _save_preds(run_dir / "preds_unlabelled.npz", logits, np.array([]), pool.ids)
 
     (run_dir / "metrics.json").write_text(json.dumps(results, indent=2) + "\n")
+    test = f"| test acc {results['test']['accuracy']:.4f} f1 {results['test']['macro_f1']:.4f} " \
+        if cfg.evaluate_test else ""
     print(f"[{cfg.run_name}] best epoch {best_epoch}: val acc {results['val']['accuracy']:.4f} "
-          f"f1 {results['val']['macro_f1']:.4f} | test acc {results['test']['accuracy']:.4f} "
-          f"f1 {results['test']['macro_f1']:.4f} | {train_seconds / 60:.1f} min")
+          f"f1 {results['val']['macro_f1']:.4f} {test}| {train_seconds / 60:.1f} min")
     return results

@@ -1,0 +1,42 @@
+"""Experiment grids: the main supervised grid and the learning-rate tuning sweep."""
+
+from __future__ import annotations
+
+from itertools import product
+
+from eurosat_le.constants import LABEL_FRACTIONS, REPO_ROOT, SUBSET_SEEDS
+from eurosat_le.train.config import TrainConfig, load_config
+
+CONFIG_DIR = REPO_ROOT / "configs"
+MAIN_MODELS = ["scratch_cnn", "resnet50", "vit_small"]
+MODALITIES = ["rgb", "ms"]
+
+# Learning-rate candidates for the light tuning sweep (centre = current config value).
+TUNE_LRS = {
+    "scratch_cnn": [1e-3, 2e-3, 4e-3],
+    "resnet50": [2e-4, 5e-4, 1e-3],
+    "vit_small": [5e-5, 1e-4, 2e-4],
+    "vit_scratch": [5e-4, 1e-3, 2e-3],
+}
+TUNE_CELL = {"modality": "rgb", "fraction": 0.1, "seed": 0}
+
+
+def main_grid(models=MAIN_MODELS, modalities=MODALITIES, fractions=LABEL_FRACTIONS, seeds=SUBSET_SEEDS,
+              **overrides) -> list[TrainConfig]:
+    """All cells, ordered seed-first so that seed 0 of every cell finishes before seed 1 starts."""
+    return [
+        load_config(CONFIG_DIR / f"{m}.yaml", modality=mod, fraction=f, seed=s, **overrides)
+        for s, m, mod, f in product(seeds, models, modalities, fractions)
+    ]
+
+
+def tune_grid(models=MAIN_MODELS, **overrides) -> list[TrainConfig]:
+    """LR sweep on one cell (RGB, 10% labels, seed 0), selected on validation macro-F1 only.
+
+    Tuning runs never evaluate the test set.
+    """
+    return [
+        load_config(CONFIG_DIR / f"{m}.yaml", lr=lr, name_suffix=f"tune_lr{lr:g}", evaluate_test=False,
+                    **{**TUNE_CELL, **overrides})
+        for m in models for lr in TUNE_LRS[m]
+    ]
