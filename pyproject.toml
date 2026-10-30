@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eurosat_le"
+version = "0.1.0"
+description = "Label-efficient land-use classification on EuroSAT (RGB vs 13-band, CNN vs ViT)."
+requires-python = ">=3.10"
+# Runtime dependencies live in requirements.txt (and requirements-lock.txt for exact
+# versions) so that Colab/Kaggle can keep their preinstalled torch builds.
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,120 @@
+{
+  "n_samples": 27000,
+  "classes": [
+    "AnnualCrop",
+    "Forest",
+    "HerbaceousVegetation",
+    "Highway",
+    "Industrial",
+    "Pasture",
+    "PermanentCrop",
+    "Residential",
+    "River",
+    "SeaLake"
+  ],
+  "class_counts": {
+    "AnnualCrop": {
+      "train": 2100,
+      "val": 450,
+      "test": 450,
+      "total": 3000
+    },
+    "Forest": {
+      "train": 2100,
+      "val": 450,
+      "test": 450,
+      "total": 3000
+    },
+    "HerbaceousVegetation": {
+      "train": 2099,
+      "val": 451,
+      "test": 450,
+      "total": 3000
+    },
+    "Highway": {
+      "train": 1750,
+      "val": 375,
+      "test": 375,
+      "total": 2500
+    },
+    "Industrial": {
+      "train": 1750,
+      "val": 375,
+      "test": 375,
+      "total": 2500
+    },
+    "Pasture": {
+      "train": 1400,
+      "val": 300,
+      "test": 300,
+      "total": 2000
+    },
+    "PermanentCrop": {
+      "train": 1750,
+      "val": 375,
+      "test": 375,
+      "total": 2500
+    },
+    "Residential": {
+      "train": 2100,
+      "val": 450,
+      "test": 450,
+      "total": 3000
+    },
+    "River": {
+      "train": 1750,
+      "val": 375,
+      "test": 375,
+      "total": 2500
+    },
+    "SeaLake": {
+      "train": 2100,
+      "val": 450,
+      "test": 450,
+      "total": 3000
+    }
+  },
+  "rgb": {
+    "shapes": [
+      "((64, 64, 3), 'uint8')"
+    ],
+    "exact_pixel_duplicate_groups": 0,
+    "duplicate_groups_spanning_splits": 0,
+    "duplicate_examples": []
+  },
+  "ms": {
+    "shapes": [
+      "((64, 64, 13), 'uint16')"
+    ],
+    "band_min": {
+      "B01": 808.0,
+      "B02": 0.0,
+      "B03": 0.0,
+      "B04": 0.0,
+      "B05": 174.0,
+      "B06": 153.0,
+      "B07": 128.0,
+      "B08": 0.0,
+      "B09": 40.0,
+      "B10": 1.0,
+      "B11": 5.0,
+      "B12": 1.0,
+      "B8A": 91.0
+    },
+    "band_max": {
+      "B01": 17720.0,
+      "B02": 28000.0,
+      "B03": 28000.0,
+      "B04": 28000.0,
+      "B05": 24008.0,
+      "B06": 27791.0,
+      "B07": 28001.0,
+      "B08": 28003.0,
+      "B09": 15384.0,
+      "B10": 183.0,
+      "B11": 24704.0,
+      "B12": 22210.0,
+      "B8A": 28000.0
+    }
+  }
+}

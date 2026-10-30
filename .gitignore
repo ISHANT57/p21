@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data (downloaded or derived; never commit)
+/data/
+
+# Training outputs: checkpoints and per-run logs stay local / on Drive.
+# Small aggregated results (CSV/JSON/PNG) are committed from results/summary/
+# and results/dataset_inspection/.
+/results/runs/
+*.pt
+*.pth
+*.ckpt
+
+# LaTeX build files
+report/*.aux
+report/*.log
+report/*.out
+report/*.bbl
+report/*.blg
+report/*.synctex.gz
+report/*.fdb_latexmk
+report/*.fls
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
