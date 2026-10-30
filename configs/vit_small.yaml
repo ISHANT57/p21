@@ -1,0 +1,12 @@
+# ViT-Small/16 pretrained on ImageNet-21k -> 1k (timm vit_small_patch16_224.augreg_in21k_ft_in1k),
+# input upsampled to 224 px on the GPU. For 13-band input the patch embedding is widened.
+model: vit_small
+pretrained: true
+init_mode: mean
+epochs: 30
+batch_size: 64
+lr: 1.0e-4
+weight_decay: 0.05
+warmup_frac: 0.1
+patience: 10
+aug: weak

@@ -30,6 +30,9 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   ├── constants.py         # classes, bands, seeds, download mirrors + hashes
 │   ├── utils.py             # seeding helpers
 │   ├── viz.py               # shared figure style / colours
+│   ├── models/              # scratch CNN, ResNet-50, ViT-Small, 13-band input adaptation
+│   ├── train/               # TrainConfig + training engine
+│   ├── eval/                # metrics
 │   └── data/
 │       ├── download.py      # hash-verified download + safe extraction
 │       ├── index.py         # sample index, RGB/MS id consistency check
@@ -42,14 +45,17 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   ├── download_data.py
 │   ├── make_splits.py
 │   ├── inspect_dataset.py
-│   └── build_cache.py
+│   ├── build_cache.py
+│   ├── smoke_test.py        # overfit one batch per model x input
+│   └── train.py             # one training run
+├── configs/                 # one YAML per model
 ├── notebooks/colab_setup.ipynb  # Colab/Kaggle: clone, install, data, checks
 ├── splits/                  # COMMITTED split files: split.csv, subsets/, manifest.json, norm_stats.json
 ├── results/
 │   ├── dataset_inspection/  # committed dataset figures + summary
 │   └── runs/                # per-run outputs (git-ignored)
 ├── tests/                   # pytest unit tests (no dataset needed)
-├── docs/                    # DATA.md (splitting), more as phases land
+├── docs/                    # DATA.md (data + splits), MODELS.md (models + training)
 ├── phases.md                # phase plan + task checklists
 ├── status.md                # progress, findings, open decisions
 ├── requirements.txt         # minimum versions (Colab/Kaggle friendly)
@@ -95,6 +101,16 @@ python scripts/build_cache.py --which all                  # pack images into da
 ```
 
 `make_splits.py` without `--check` was run once to create `splits/`. It refuses to overwrite the splits unless you pass `--force`. Regenerating the splits would make every earlier result incomparable.
+
+## Training
+
+```bash
+python scripts/smoke_test.py                                    # every model x input memorises one batch
+python scripts/train.py --config configs/resnet50.yaml --modality rgb --fraction 1.0 --seed 0
+python scripts/train.py --config configs/vit_small.yaml --modality ms --fraction 0.01 --seed 1 --set lr=5e-5
+```
+
+Outputs go to `results/runs/<model>_<input>_<pct>pct_seed<s>/`. See [docs/MODELS.md](docs/MODELS.md) for the models, how the first layer is set up for 13 bands, and the training details.
 
 ## Contributing
 
