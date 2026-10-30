@@ -38,6 +38,9 @@ class TrainConfig:
     num_workers: int = 2
     eval_batch_size: int = 256
     in_memory: bool = False
+    # pseudo-labelling student (Phase 5); set by eurosat_le.ssl.self_training
+    pseudo_labels: str | None = None  # CSV (id, label, confidence) inside the run dir
+    teacher: str | None = None        # run name of the teacher that produced the pseudo-labels
     # bookkeeping
     run_name: str | None = None       # default: <model>_<modality>_<pct>pct_seed<seed>[_<suffix>]
     name_suffix: str = ""

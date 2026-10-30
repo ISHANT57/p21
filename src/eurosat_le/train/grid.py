@@ -10,6 +10,10 @@ from eurosat_le.train.config import TrainConfig, load_config
 CONFIG_DIR = REPO_ROOT / "configs"
 MAIN_MODELS = ["scratch_cnn", "resnet50", "vit_small"]
 MODALITIES = ["rgb", "ms"]
+# Phase 5 scope: scratch CNN + one pretrained model (switch to the best pretrained model
+# once Phase 4 results are in), 1% and 10% labels.
+PL_MODELS = ["scratch_cnn", "resnet50"]
+PL_FRACTIONS = [0.01, 0.1]
 
 # Learning-rate candidates for the light tuning sweep (centre = current config value).
 TUNE_LRS = {

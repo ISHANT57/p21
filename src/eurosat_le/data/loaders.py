@@ -27,6 +27,8 @@ class DataConfig:
     source: str = "cache"           # "cache" (packed .npy) or "raw" (original files)
     in_memory: bool = False         # load the whole cache into RAM instead of memory-mapping
     seed: int = 0                   # seed for shuffling and augmentation
+    extra_ids: list[str] | None = None     # pseudo-labelled train ids added to the labelled set
+    extra_labels: list[int] | None = None  # their pseudo-labels (aligned with extra_ids)
 
 
 def _loader(ds, batch_size, cfg, shuffle=False, sampler=None, drop_last=False, offset=0):
@@ -41,8 +43,15 @@ def _loader(ds, batch_size, cfg, shuffle=False, sampler=None, drop_last=False, o
 def build_loaders(cfg: DataConfig) -> dict[str, DataLoader]:
     """Return loaders: train, val, test, and (if cfg.unlabelled and the pool is non-empty) unlabelled."""
     kw = dict(source=cfg.source, in_memory=cfg.in_memory)
-    train_ds = make_dataset(cfg.modality, labelled_ids(cfg.fraction, cfg.subset_seed),
-                            transform=build_transform(cfg.aug), **kw)
+    lab = labelled_ids(cfg.fraction, cfg.subset_seed)
+    if cfg.extra_ids:
+        if set(cfg.extra_ids) & set(lab):
+            raise ValueError("pseudo-labelled ids overlap the labelled subset")
+        true = make_dataset(cfg.modality, lab, **kw).labels.tolist()
+        train_ds = make_dataset(cfg.modality, lab + list(cfg.extra_ids), labels=true + list(cfg.extra_labels),
+                                transform=build_transform(cfg.aug), **kw)
+    else:
+        train_ds = make_dataset(cfg.modality, lab, transform=build_transform(cfg.aug), **kw)
     val_ds = make_dataset(cfg.modality, split_ids("val"), **kw)
     test_ds = make_dataset(cfg.modality, split_ids("test"), **kw)
 
