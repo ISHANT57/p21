@@ -32,7 +32,7 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   ├── viz.py               # shared figure style / colours
 │   ├── models/              # scratch CNN, ResNet-50, ViT-Small, 13-band input adaptation
 │   ├── train/               # TrainConfig + training engine
-│   ├── eval/                # metrics
+│   ├── eval/                # metrics, ECE, paired bootstrap, confusion matrices
 │   ├── ssl/                 # pseudo-labelling: threshold, selection, student runs
 │   └── data/
 │       ├── download.py      # hash-verified download + safe extraction
@@ -51,7 +51,8 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   ├── train.py             # one training run
 │   ├── run_grid.py          # tuning sweep / 54-run grid / pseudo-label students; resumable
 │   ├── pseudo_label.py      # one pseudo-label student from a teacher run
-│   └── collect_results.py   # runs -> summary tables
+│   ├── collect_results.py   # runs -> quick summary tables
+│   └── evaluate.py          # full evaluation from saved predictions
 ├── configs/                 # one YAML per model
 ├── notebooks/colab_setup.ipynb  # Colab/Kaggle: clone, install, data, checks
 ├── splits/                  # COMMITTED split files: split.csv, subsets/, manifest.json, norm_stats.json
@@ -59,7 +60,7 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   ├── dataset_inspection/  # committed dataset figures + summary
 │   └── runs/                # per-run outputs (git-ignored)
 ├── tests/                   # pytest unit tests (no dataset needed)
-├── docs/                    # DATA.md (data + splits), MODELS.md (models + training), SSL.md (pseudo-labelling)
+├── docs/                    # DATA.md (data + splits), MODELS.md (models + training), SSL.md (pseudo-labelling), EVALUATION.md
 ├── phases.md                # phase plan + task checklists
 ├── status.md                # progress, findings, open decisions
 ├── requirements.txt         # minimum versions (Colab/Kaggle friendly)
@@ -120,6 +121,7 @@ python scripts/run_grid.py --plan main --dry-run                # 54-run grid: w
 python scripts/run_grid.py --plan main --models resnet50 --max-hours 11   # resumable; --shard k/n to split
 python scripts/run_grid.py --plan pl                            # pseudo-label students (Phase 5)
 python scripts/collect_results.py                               # tables in results/summary/
+python scripts/evaluate.py --examples resnet50_ms_1pct_seed0    # Phase 6: all metrics, comparisons, error grid
 ```
 
 Outputs go to `results/runs/<model>_<input>_<pct>pct_seed<s>/`. Pseudo-labelling is described in [docs/SSL.md](docs/SSL.md). See [docs/MODELS.md](docs/MODELS.md) for the models, how the first layer is set up for 13 bands, and the training details.

@@ -114,12 +114,14 @@ Grid: 3 models × 2 input types × 3 label fractions × 3 seeds = **54 runs** (+
 
 **Goal:** the same complete evaluation for every run, on the fixed test set.
 
-- [ ] Metrics: overall accuracy, macro-F1, per-class precision / recall / F1
-- [ ] Confusion matrices (counts and row-normalised) per run; averaged over seeds
-- [ ] Mean ± std over the 3 seeds for every setting
-- [ ] Paired comparisons (RGB vs 13-band, supervised vs pseudo-labelling) using the same seeds; report the per-seed differences
-- [ ] Error analysis: which classes get confused (e.g. Highway / River, PermanentCrop / AnnualCrop); example images of misclassifications
-- [ ] *(optional)* Calibration (ECE), since it matters for pseudo-label thresholds
+- [x] Metrics recomputed from saved predictions: overall accuracy, macro-F1, per-class precision / recall / F1, and a cross-check against `metrics.json`
+- [x] Confusion matrices: row-normalised and averaged over seeds, per group; top confused class pairs
+- [x] Mean ± std over the 3 seeds for every setting (`groups.csv`, `per_class.csv`)
+- [x] Paired comparisons (RGB vs 13-band, supervised vs pseudo-label, global vs balanced pseudo-label, between models), matched on seed: per-seed differences plus 95% paired bootstrap intervals on the test set
+- [x] Error analysis: misclassified-image grid (`--examples <run>`); confused pairs in `top_confusions.csv`
+- [x] Calibration (ECE, 15 bins) for every run
+- [x] Unit tests on fake run folders built from the real test ids; method in `docs/EVALUATION.md`
+- [ ] Run on the real results once Phases 4–5 finish; interpret the results in the report
 
 **Done when:** `scripts/evaluate.py` rebuilds every metric from the saved predictions with one command.
 

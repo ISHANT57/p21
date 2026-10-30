@@ -1,0 +1,149 @@
+"""Rebuild every evaluation table from saved predictions (Phase 6).
+
+Usage:
+    python scripts/evaluate.py                                  # results/runs -> results/summary/eval
+    python scripts/evaluate.py --runs-dir /content/drive/MyDrive/p21_runs
+    python scripts/evaluate.py --examples resnet50_rgb_1pct_seed0 vit_small_ms_1pct_seed0
+
+Writes to results/summary/eval/:
+    per_run.csv            val/test accuracy, macro-F1, ECE for every run (recomputed)
+    groups.csv             mean / std over seeds per model x input x fraction x variant
+    per_class.csv          per-class precision / recall / F1, mean and std over seeds
+    confusion/*.csv        seed-averaged row-normalised confusion matrix per group
+    top_confusions.csv     the most frequent (true -> predicted) mistakes per group
+    compare_*.csv          paired comparisons: per seed (pairs) and summarised over seeds
+    errors_<run>.png       misclassified test images (with --examples)
+"""
+
+import argparse
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from eurosat_le.constants import CLASSES, RESULTS_DIR
+from eurosat_le.eval.evaluate import (check_against_logged, compare, load_preds, load_runs, mean_confusion,
+                                      run_metrics, summarise_comparison, top_confusions)
+from eurosat_le.train.engine import RUNS_DIR
+
+GROUP = ["model", "modality", "fraction", "variant"]
+COMPARISONS = [  # (file stem, factor, a, b): b is compared against a
+    ("rgb_vs_ms", "modality", "rgb", "ms"),
+    ("supervised_vs_pl", "variant", "supervised", "pl"),
+    ("supervised_vs_plb", "variant", "supervised", "plb"),
+    ("pl_vs_plb", "variant", "pl", "plb"),
+    ("scratch_vs_resnet50", "model", "scratch_cnn", "resnet50"),
+    ("scratch_vs_vit_small", "model", "scratch_cnn", "vit_small"),
+    ("resnet50_vs_vit_small", "model", "resnet50", "vit_small"),
+]
+
+
+def group_name(row) -> str:
+    return f"{row['model']}_{row['modality']}_{row['fraction'] * 100:g}pct_{row['variant']}"
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
+    p.add_argument("--out", type=Path, default=RESULTS_DIR / "summary" / "eval")
+    p.add_argument("--n-boot", type=int, default=1000)
+    p.add_argument("--examples", nargs="*", default=[], metavar="RUN", help="plot misclassified test images")
+    args = p.parse_args()
+
+    runs = load_runs(args.runs_dir)
+    if runs.empty:
+        raise SystemExit(f"no finished runs with test predictions in {args.runs_dir}")
+    out = args.out
+    (out / "confusion").mkdir(parents=True, exist_ok=True)
+
+    # ---- per run ------------------------------------------------------------------------------
+    rows, class_rows, issues = [], [], []
+    for _, r in runs.iterrows():
+        met = run_metrics(r["dir"])
+        issues += check_against_logged(r["dir"], met)
+        rows.append({**{k: r[k] for k in ["run_name", *GROUP, "seed"]},
+                     **{f"{s}_{k}": met[s][k] for s in ("val", "test") for k in ("accuracy", "macro_f1", "ece")}})
+        for c in CLASSES:
+            class_rows.append({**{k: r[k] for k in [*GROUP, "seed"]}, "class": c, **met["test"]["per_class"][c]})
+    per_run = pd.DataFrame(rows)
+    per_run.to_csv(out / "per_run.csv", index=False)
+    print(f"{len(per_run)} runs evaluated")
+    if issues:
+        print("WARNING: recomputed metrics differ from metrics.json:\n  " + "\n  ".join(issues))
+
+    groups = per_run.groupby(GROUP).agg(
+        n_seeds=("seed", "nunique"),
+        test_acc_mean=("test_accuracy", "mean"), test_acc_std=("test_accuracy", "std"),
+        test_f1_mean=("test_macro_f1", "mean"), test_f1_std=("test_macro_f1", "std"),
+        test_ece_mean=("test_ece", "mean"), val_f1_mean=("val_macro_f1", "mean"),
+    ).reset_index()
+    groups.to_csv(out / "groups.csv", index=False)
+
+    per_class = pd.DataFrame(class_rows).groupby([*GROUP, "class"]).agg(
+        precision=("precision", "mean"), recall=("recall", "mean"),
+        f1_mean=("f1", "mean"), f1_std=("f1", "std"), n_seeds=("seed", "nunique"),
+    ).reset_index()
+    per_class.to_csv(out / "per_class.csv", index=False)
+
+    # ---- confusion matrices ---------------------------------------------------------------------
+    conf_rows = []
+    for key, g in runs.groupby(GROUP):
+        row = dict(zip(GROUP, key))
+        cm = mean_confusion(list(g["dir"]))
+        pd.DataFrame(cm, index=CLASSES, columns=CLASSES).to_csv(out / "confusion" / f"{group_name(row)}.csv")
+        for true, pred, rate in top_confusions(cm):
+            conf_rows.append({**row, "true": true, "predicted": pred, "rate": rate})
+    pd.DataFrame(conf_rows).to_csv(out / "top_confusions.csv", index=False)
+
+    # ---- paired comparisons ---------------------------------------------------------------------
+    for stem, factor, a, b in COMPARISONS:
+        pairs = compare(runs, factor, a, b, args.n_boot)
+        if pairs.empty:
+            continue
+        pairs.to_csv(out / f"compare_{stem}_pairs.csv", index=False)
+        summ = summarise_comparison(pairs)
+        summ.to_csv(out / f"compare_{stem}.csv", index=False)
+        print(f"\n{stem}: macro-F1({b}) - macro-F1({a}), paired by seed")
+        cols = [c for c in GROUP if c != factor and c in summ.columns]
+        print(summ[cols + ["n_seeds", "delta_f1_mean", "delta_f1_std", "seeds_b_better", "seeds_ci_excludes_0"]]
+              .to_string(index=False, float_format="%.4f"))
+
+    for name in args.examples:
+        plot_errors(args.runs_dir / name, out / f"errors_{name}.png")
+    print(f"\nwrote {out}")
+
+
+def plot_errors(run_dir: Path, path: Path, n: int = 24, seed: int = 0) -> None:
+    """Grid of misclassified test images (shown in RGB, also for 13-band runs)."""
+    import matplotlib.pyplot as plt
+
+    from eurosat_le import viz
+    from eurosat_le.data.cache import load_cache
+    from eurosat_le.data.splits import load_split
+    from eurosat_le.ssl.pseudo_label import softmax
+
+    viz.apply_style()
+    logits, y, ids = load_preds(run_dir)
+    probs = softmax(logits)
+    wrong = np.flatnonzero(probs.argmax(1) != y)
+    pick = np.random.default_rng(seed).choice(wrong, min(n, len(wrong)), replace=False)
+    rgb = load_cache("rgb")
+    row_of = {sid: i for i, sid in enumerate(load_split()["id"])}
+    cols = 6
+    rows = int(np.ceil(len(pick) / cols))
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.0, rows * 2.3), squeeze=False)
+    for ax in axes.flat:
+        ax.axis("off")
+    for ax, i in zip(axes.flat, pick):
+        img = rgb[row_of[ids[i]]].transpose(1, 2, 0)
+        ax.imshow(img)
+        ax.set_title(f"{CLASSES[y[i]]}\n→ {CLASSES[probs[i].argmax()]}\n({probs[i].max():.2f})", fontsize=6.5,
+                     fontweight="normal", color=viz.TEXT_PRIMARY)
+    fig.suptitle(f"{run_dir.name}: misclassified test images (true → predicted, confidence)", fontsize=9)
+    fig.subplots_adjust(wspace=0.15, hspace=0.6)
+    fig.savefig(path)
+    plt.close(fig)
+
+
+if __name__ == "__main__":
+    main()
