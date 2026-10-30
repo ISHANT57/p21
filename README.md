@@ -78,6 +78,8 @@ uv pip install -r requirements.txt -e .
 pytest -q
 ```
 
+**Windows:** follow [docs/WINDOWS.md](docs/WINDOWS.md).
+
 To reproduce the exact local environment, use `uv pip install -r requirements-lock.txt -e .` instead.
 
 ### Google Colab / Kaggle (GPU)
