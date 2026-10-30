@@ -1,7 +1,7 @@
 # Project status (P21)
 
 **Last updated:** 2026-10-30
-**Current phase:** Phase 3 code done. The ResNet-50 baseline on Colab is blocked until the code is on GitHub.
+**Current phase:** Phase 4 tooling done. Waiting on GPU runs: the Phase 3 baseline, then the tuning sweep, then the 54-run grid.
 
 The plan and its task lists are in [phases.md](phases.md). Update this file whenever a phase task finishes or a decision is made.
 
@@ -11,8 +11,8 @@ The plan and its task lists are in [phases.md](phases.md). Update this file when
 |---|---|---|---|
 | 1 | Repository, download, inspection, splits | ✅ Done | 2026-10-30 |
 | 2 | Preprocessing, augmentation, loaders | ✅ Done (local), Colab test pending | 2026-10-30 |
-| 3 | Models and working baseline | ⚠️ Code done; Colab baseline blocked (no repo yet) | |
-| 4 | Supervised label-efficiency runs (54) | ⬜ Not started | |
+| 3 | Models and working baseline | ⏳ Code done; baseline waiting for the user's Colab run (zip ready) | |
+| 4 | Supervised label-efficiency runs (54) | ⏳ Tooling done; GPU runs pending | |
 | 5 | Pseudo-labelling (24 runs) | ⬜ Not started | |
 | 6 | Evaluation | ⬜ Not started | |
 | 7 | Figures, tables, README, report | ⬜ Not started | |
@@ -30,6 +30,16 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 | *(optional)* Band ablation | n/a | 0 |
 
 ## Change log
+
+### 2026-10-30: Phase 4 tooling finished (branch `feat/grid-runner`)
+- Budget rule (confirmed by the user): every run trains for `max(epochs × one pass over its labelled set, min_steps)` steps. Small-label epochs are stretched, so the number of validation checks is the same for every fraction. See `docs/MODELS.md`.
+- `scripts/run_grid.py`:
+  - `--plan tune` runs 9 learning-rate runs and never evaluates the test set.
+  - `--plan main` runs the 54-run grid, seed 0 first.
+  - It resumes after a disconnect, splits work with `--shard k/n`, stops starting runs after `--max-hours`, and logs failures and carries on.
+- `scripts/collect_results.py` builds `runs.csv`, `tuning.csv` and `supervised.csv` (mean ± std over seeds).
+- Notebook section 6 runs the tuning sweep and the grid on Colab or Kaggle.
+- Tested on CPU with throwaway runs: skip and resume, tuning without test, teacher predictions for 1% runs, the tables. The test runs were then deleted. 42 tests pass.
 
 ### 2026-10-30: Phase 3 code finished (branch `feat/models`)
 - Models: `scratch_cnn` (2.8M parameters), `resnet50` (23.5M), `vit_small` (21.7M) and the optional `vit_scratch` (5.4M), each for 3 or 13 input channels. Models that need 224 px upsample on the GPU.
@@ -74,7 +84,7 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 - [ ] GitHub account, repository name and member access. **Nothing will be pushed until these are confirmed.**
 - [ ] Group members and who owns which area (see the CONTRIBUTING.md table)
 - [ ] Report template, page limit and deadline from the course
-- [ ] Training budget rule for Phase 4 (fixed number of steps vs. epochs)
+- [x] Phase 4 budget rule confirmed by the user on 2026-10-30: `max(epochs × one pass, min_steps)` (see docs/MODELS.md)
 
 ## Risks
 
@@ -83,10 +93,13 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 | Free Colab/Kaggle sessions disconnect and have usage quotas | Run script skips finished runs and saves to Drive after each run |
 | Local disk has 13 GB free | Delete download zips after extraction; build the packed cache only where training runs |
 | Zenodo downloads are unreliable | Hugging Face mirror with hash check is already used as a fallback |
-| 54 + 24 runs may not fit the GPU quota | Do the main grid first; optional runs only afterwards |
+| 54 + 24 runs may not fit the GPU quota | Do the main grid first; optional runs only afterwards. Budget per pretrained model: about 71k optimiser steps over 18 runs (8,850 steps for each 100% run, 1,500 for each 1%/10% run). Measure throughput in the baseline run, then estimate GPU hours. |
+| Kaggle has no Google Drive | Save results as notebook output (*Save Version*) or download `results/runs/` at the end of each session |
 
 ## Next actions
 
-1. **Baseline now (no GitHub needed):** upload `dist/p21_code.zip` to Colab and run `notebooks/colab_setup.ipynb`; it covers setup, the smoke test and the ResNet-50 baseline. Then copy `results/runs/resnet50_rgb_100pct_seed0/` back here, or report the numbers.
+1. **Baseline (user, on Colab; no GitHub needed):** upload `dist/p21_code.zip` to Colab and run `notebooks/colab_setup.ipynb`; it covers setup, the smoke test and the ResNet-50 baseline. Then copy `results/runs/resnet50_rgb_100pct_seed0/` back here, or report the numbers.
 2. GitHub repo (account and repo name from the user) for the group workflow.
-3. Phase 4 prep: choose the training budget rule, write a grid runner script that resumes after a disconnect, do light tuning on the validation set.
+3. After the baseline: the tuning sweep (notebook section 6, 9 runs), then freeze `lr` in `configs/*.yaml` and commit.
+4. Main grid: 54 runs, which can be split across Colab, Kaggle and group members with `--shard`.
+5. Meanwhile, offline: Phase 5 pseudo-labelling code and Phase 6 evaluation scripts. Both run on saved predictions and can be tested on CPU.

@@ -76,12 +76,15 @@ Legend: `[x]` done · `[ ]` to do · *(optional)* = only if time and compute all
 
 Grid: 3 models × 2 input types × 3 label fractions × 3 seeds = **54 runs** (+18 if the optional ViT from scratch is included).
 
-- [ ] Fix the training budget rule, for example the same number of optimiser steps for every fraction, with a minimum number of epochs; document it
-- [ ] Tune hyper-parameters lightly on the **validation set only**, for one setting per model, then freeze them
-- [ ] Run script that skips finished runs (so it can resume after a Colab disconnect) and syncs `results/runs/` to Drive
-- [ ] Run the RGB grid
-- [ ] Run the 13-band grid
+- [x] Training budget rule: every run trains for `max(epochs × one pass over its labelled set, min_steps)` optimiser steps, with the same number of epochs (validation checks) for every fraction. `min_steps` is 1,500 for the pretrained models and 3,000 for the scratch CNN. Confirmed by the user on 2026-10-30. Documented in `docs/MODELS.md`.
+- [x] Tuning sweep code: 3 learning rates per model on RGB / 10% labels / seed 0, picked by validation macro-F1; test set never evaluated (`run_grid.py --plan tune`)
+- [ ] Run the tuning sweep on GPU (9 runs), update `lr` in `configs/*.yaml`, commit ("freeze hyper-parameters")
+- [x] Grid runner `scripts/run_grid.py`: skips finished runs, `--shard k/n` to split the grid across machines, `--max-hours` for session limits, logs failures and continues. Results go to Drive through the notebook's `results/runs` link.
+- [x] Results collector `scripts/collect_results.py` → `results/summary/runs.csv`, `supervised.csv` (mean ± std over seeds), `tuning.csv`
+- [ ] Run the RGB grid (27 runs)
+- [ ] Run the 13-band grid (27 runs)
 - [ ] *(optional)* Band ablation: 13 bands without B10, and RGB+NIR (4 bands)
+- [ ] *(optional)* `init_mode: zero` vs `mean` for the 13-band pretrained models
 - [ ] Gather all runs → `results/summary/supervised.csv`
 
 **Done when:** all 54 runs have `metrics.json` and the summary table is filled.

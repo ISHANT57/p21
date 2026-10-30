@@ -2,6 +2,7 @@
 model: vit_scratch
 pretrained: false
 epochs: 100
+min_steps: 5000          # budget: max(epochs x one pass, min_steps) optimiser steps
 batch_size: 64
 lr: 1.0e-3
 weight_decay: 0.05

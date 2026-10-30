@@ -4,6 +4,7 @@ model: resnet50
 pretrained: true
 init_mode: mean
 epochs: 30
+min_steps: 1500          # budget: max(epochs x one pass, min_steps) optimiser steps
 batch_size: 64
 lr: 5.0e-4
 weight_decay: 0.05

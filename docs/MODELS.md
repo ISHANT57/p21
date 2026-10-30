@@ -43,4 +43,20 @@ ImageNet models expect 3 input channels. For 13-band input, the first layer is r
   - `metrics.json`, written last; a finished run is skipped when re-launched
   - For runs with 1% or 10% labels, `preds_unlabelled.npz` holds the trained model's predictions on the unlabelled training pool. These are the teacher pseudo-labels for Phase 5, so no checkpoint has to be stored.
 
+## Training budget (Phase 4)
+
+Every run trains for **max(epochs × one pass over its labelled set, `min_steps`)** optimiser steps.
+
+- With 100% of labels, one pass is 295 steps (batch size 64), so ResNet-50 runs 30 × 295 = 8,850 steps.
+- With 1% (191 images) or 10% (1,890 images), one pass is only 2 or 29 steps. The plain rule would give 60 or 870 steps, which is too few to converge. Each epoch is therefore stretched to `ceil(min_steps / epochs)` steps, sampling with replacement: 50 steps per epoch, 1,500 steps in total.
+- The number of epochs, which is also the number of validation checks and the unit of early-stopping `patience`, is the same for every fraction.
+- `min_steps` is 1,500 for ResNet-50 and ViT-Small, 3,000 for the scratch CNN (60 epochs × 50) and 5,000 for the optional ViT from scratch.
+- Early stopping on validation macro-F1 ends a run once it stops improving, so a generous budget costs little.
+
+The resolved values are saved in each run's `metrics.json` as `steps_per_epoch` and `total_steps_planned`.
+
+## Hyper-parameter tuning
+
+`python scripts/run_grid.py --plan tune` tries 3 learning rates per model on one cell (RGB, 10% labels, seed 0) and picks the best by **validation** macro-F1. Tuning runs never evaluate the test set (`evaluate_test: false`). The chosen learning rate is written into `configs/<model>.yaml` and committed. It is then used unchanged for every input type, label fraction and seed. All other hyper-parameters stay as listed below.
+
 Starting hyper-parameters are in `configs/*.yaml`. In Phase 4 they are tuned lightly on the validation set only, then frozen.

@@ -65,3 +65,22 @@ def test_cosine_with_warmup_schedule():
         sched.step()
     assert lrs[0] == pytest.approx(0.1) and lrs[9] == pytest.approx(1.0)
     assert lrs[-1] < 0.01 and all(a >= b for a, b in zip(lrs[10:], lrs[11:]))
+
+
+@pytest.mark.parametrize("n_lab,expected", [(191, 50), (1890, 50), (18899, None)])
+def test_budget_rule_min_steps(n_lab, expected):
+    cfg = load_config(None, epochs=30, batch_size=64, min_steps=1500)
+    assert cfg.resolve_steps_per_epoch(n_lab) == expected
+    assert load_config(None, epochs=30, batch_size=64).resolve_steps_per_epoch(191) is None
+
+
+def test_grids():
+    from eurosat_le.train.grid import main_grid, tune_grid
+
+    grid = main_grid()
+    names = [c.run_name for c in grid]
+    assert len(grid) == 54 and len(set(names)) == 54
+    assert all(c.seed == 0 for c in grid[:18]), "seed 0 of every cell should come first"
+    tune = tune_grid()
+    assert len(tune) == 9 and not any(c.evaluate_test for c in tune)
+    assert all(c.fraction == 0.1 and c.modality == "rgb" for c in tune)

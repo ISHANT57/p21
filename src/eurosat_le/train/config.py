@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class TrainConfig:
     # optimisation
     epochs: int = 30
     steps_per_epoch: int | None = None  # None = one pass over the labelled set per epoch
+    min_steps: int | None = None      # budget floor: stretch small-label epochs to reach this many steps
     batch_size: int = 64
     lr: float = 1e-3
     weight_decay: float = 0.05
@@ -39,6 +41,7 @@ class TrainConfig:
     # bookkeeping
     run_name: str | None = None       # default: <model>_<modality>_<pct>pct_seed<seed>[_<suffix>]
     name_suffix: str = ""
+    evaluate_test: bool = True       # False for tuning runs: the test set stays untouched
     save_checkpoint: bool = False     # best weights to best.pt (large; predictions are always saved)
     max_train_batches: int | None = None  # debug only: cap batches per epoch
 
@@ -47,10 +50,26 @@ class TrainConfig:
             name = f"{self.model}_{self.modality}_{self.fraction * 100:g}pct_seed{self.seed}"
             self.run_name = f"{name}_{self.name_suffix}" if self.name_suffix else name
 
-    def data_config(self) -> DataConfig:
+    def resolve_steps_per_epoch(self, n_labelled: int) -> int | None:
+        """Budget rule: total steps = max(epochs x one pass over the labelled set, min_steps).
+
+        Returns None for a plain pass over the data (shuffle, drop_last), or a fixed
+        number of steps per epoch (sampling with replacement) when the plain pass
+        would fall short of min_steps. The number of epochs, and so the number of
+        validation checks and the meaning of `patience`, stays the same.
+        """
+        if self.steps_per_epoch:
+            return self.steps_per_epoch
+        natural = max(1, n_labelled // self.batch_size)
+        if self.min_steps and self.epochs * natural < self.min_steps:
+            return math.ceil(self.min_steps / self.epochs)
+        return None
+
+    def data_config(self, steps_per_epoch: int | None = None) -> DataConfig:
         return DataConfig(modality=self.modality, fraction=self.fraction, subset_seed=self.seed,
                           batch_size=self.batch_size, eval_batch_size=self.eval_batch_size,
-                          num_workers=self.num_workers, aug=self.aug, steps_per_epoch=self.steps_per_epoch,
+                          num_workers=self.num_workers, aug=self.aug,
+                          steps_per_epoch=steps_per_epoch or self.steps_per_epoch,
                           in_memory=self.in_memory, seed=self.seed)
 
     def to_dict(self) -> dict:
