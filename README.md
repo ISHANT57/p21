@@ -28,15 +28,22 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 ```
 ├── src/eurosat_le/          # importable package
 │   ├── constants.py         # classes, bands, seeds, download mirrors + hashes
+│   ├── utils.py             # seeding helpers
 │   ├── viz.py               # shared figure style / colours
 │   └── data/
 │       ├── download.py      # hash-verified download + safe extraction
 │       ├── index.py         # sample index, RGB/MS id consistency check
-│       └── splits.py        # stratified split, nested label subsets, verification
+│       ├── splits.py        # stratified split, nested label subsets, verification
+│       ├── cache.py         # pack images into one .npy per input type
+│       ├── transforms.py    # channel-agnostic weak/strong augmentation
+│       ├── datasets.py      # EuroSATDataset, make_dataset, labelled/unlabelled ids
+│       └── loaders.py       # DataConfig + build_loaders
 ├── scripts/                 # command-line entry points
 │   ├── download_data.py
 │   ├── make_splits.py
-│   └── inspect_dataset.py
+│   ├── inspect_dataset.py
+│   └── build_cache.py
+├── notebooks/colab_setup.ipynb  # Colab/Kaggle: clone, install, data, checks
 ├── splits/                  # COMMITTED split files: split.csv, subsets/, manifest.json, norm_stats.json
 ├── results/
 │   ├── dataset_inspection/  # committed dataset figures + summary
@@ -71,16 +78,20 @@ Keep the preinstalled CUDA build of `torch`/`torchvision` and install only the r
 !pip install -q -r requirements.txt -e .
 !python scripts/download_data.py --which all --delete-zip
 !python scripts/make_splits.py --check
+!python scripts/build_cache.py --which all
 ```
+
+Or open [notebooks/colab_setup.ipynb](notebooks/colab_setup.ipynb), which does all of this and checks the GPU.
 
 Each training run will save its own library versions and GPU type next to its results, so runs on different platforms can be traced.
 
-## Data pipeline (Phase 1)
+## Data pipeline
 
 ```bash
 python scripts/download_data.py --which all --delete-zip   # RGB ~95 MB, MS ~2.1 GB (needs ~3.5 GB free)
 python scripts/make_splits.py --check                      # verify committed splits (do NOT regenerate)
 python scripts/inspect_dataset.py                          # dataset figures + train-only normalisation stats
+python scripts/build_cache.py --which all                  # pack images into data/cache/*.npy for fast loading
 ```
 
 `make_splits.py` without `--check` was run once to create `splits/`. It refuses to overwrite the splits unless you pass `--force`. Regenerating the splits would make every earlier result incomparable.

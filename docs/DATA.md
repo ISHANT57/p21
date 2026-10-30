@@ -52,6 +52,17 @@ Each sample has an id that does not depend on the input type, for example `Annua
 - **Normalisation statistics** (per-channel mean and std, saved in `splits/norm_stats.json`) are computed **from the training split only**.
   - Known limitation: these are statistics of the full training split, so they include images that are "unlabelled" in the 1% and 10% settings. The statistics never use labels, so this is not label leakage. They also never use validation or test images.
 
+## Preprocessing and loading (Phase 2)
+
+- **Cache.** `scripts/build_cache.py` packs every image into `data/cache/rgb.npy` (`uint8`) or `data/cache/ms.npy` (`uint16`, raw DN), with shape (27000, C, 64, 64) and rows in the order of `split.csv`. A sidecar JSON file stores the hash of `split.csv`. A cache built for a different split is rejected.
+- **Normalisation.** RGB is divided by 255; 13-band data stays in raw DN. Each channel is then standardised with the train-only mean and std from `splits/norm_stats.json`. On the full train split this gives mean 0 and std 1 (within 0.001) for every band.
+- **Augmentation** (`src/eurosat_le/data/transforms.py`). Every operation works the same for 3 or 13 channels, so RGB and 13-band runs share one policy.
+  - *weak*: random flip and 90° rotation (overhead images have no natural "up"), plus a random resized crop (scale 0.75–1.0) back to 64 px.
+  - *strong*: *weak*, plus random brightness/contrast (one gain and offset shared by all bands), Gaussian noise and blur (each with probability 0.5), plus cutout (filled with 0, which is the band mean). This is used only for the unlabelled data in semi-supervised training.
+  - Evaluation and pseudo-label prediction use no augmentation.
+- **Resolution.** The data pipeline always outputs 64×64. Models that expect 224×224 (the ImageNet models and ViT-Small) upsample on the GPU inside the model.
+- **Unlabelled pool.** `unlabelled_ids(f, seed)` returns the train ids that are not in the labelled subset. This dataset never returns labels.
+
 ## Known dataset caveats (for the report)
 
 - EuroSAT patches come from a limited set of Sentinel-2 tiles, so nearby patches can be very similar. A random split, which is the protocol used in the original paper and followed here, can therefore overestimate how well a model generalises to new regions. A spatially disjoint split would be stricter but would no longer match the original benchmark.

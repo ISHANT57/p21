@@ -1,7 +1,7 @@
 # Project status (P21)
 
 **Last updated:** 2026-10-30
-**Current phase:** Phase 2, Preprocessing and data loaders (not started)
+**Current phase:** Phase 2 code done; waiting on a Colab/Kaggle test run, which needs the repo URL. Phase 3 is next.
 
 The plan and its task lists are in [phases.md](phases.md). Update this file whenever a phase task finishes or a decision is made.
 
@@ -10,8 +10,8 @@ The plan and its task lists are in [phases.md](phases.md). Update this file when
 | Phase | Title | State | Done |
 |---|---|---|---|
 | 1 | Repository, download, inspection, splits | ✅ Done | 2026-10-30 |
-| 2 | Preprocessing, augmentation, loaders | ⏳ Next | |
-| 3 | Models and working baseline | ⬜ Not started | |
+| 2 | Preprocessing, augmentation, loaders | ✅ Done (local), Colab test pending | 2026-10-30 |
+| 3 | Models and working baseline | ⏳ Next | |
 | 4 | Supervised label-efficiency runs (54) | ⬜ Not started | |
 | 5 | Pseudo-labelling (24 runs) | ⬜ Not started | |
 | 6 | Evaluation | ⬜ Not started | |
@@ -31,6 +31,15 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 
 ## Change log
 
+### 2026-10-30: Phase 2 code finished (branch `feat/data-loaders`)
+- Packed image caches: `data/cache/rgb.npy` (27000×3×64×64 `uint8`, 0.33 GB) and `ms.npy` (27000×13×64×64 `uint16`, 2.88 GB). Rows follow the order of `split.csv`. A cache built for a different split is rejected.
+- `make_dataset` / `build_loaders`: RGB or 13-band input, train-only normalisation, weak/strong augmentation, unlabelled pool with weak and strong views, seeded workers.
+- 24 tests pass. On the full train split, normalised data has mean 0 and std 1 to within 0.001 for every band. The cache matches the raw files exactly.
+- Loader speed with 2 CPU workers: RGB 5,700 img/s, 13-band 1,700 img/s; with weak+strong views, 1,900 and 570 img/s. Training on a free-tier GPU should be slower than this, so loading won't be the bottleneck.
+- Two choices changed from the plan:
+  - Resizing to 224 px moves to the GPU, inside the model.
+  - The strong augmentation is identical for RGB and 13-band input.
+
 ### 2026-10-30: Phase 1 finished
 - Repository structure, package `eurosat_le`, requirements and lock file, CI workflow.
 - Downloaded RGB (27,000 JPEGs) and 13-band (27,000 GeoTIFFs, 2.8 GB) data. Both passed the hash check. The Zenodo RGB archive failed its MD5 check (cut-off download), so the Hugging Face mirror was used instead.
@@ -48,7 +57,7 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 
 ## Open decisions (need the user / group)
 
-- [ ] Make the first local git commit for Phase 1?
+- [x] First local git commit for Phase 1 (`c19ab73` on `main`)
 - [ ] GitHub account, repository name and member access. **Nothing will be pushed until these are confirmed.**
 - [ ] Group members and who owns which area (see the CONTRIBUTING.md table)
 - [ ] Report template, page limit and deadline from the course
@@ -65,5 +74,6 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 
 ## Next actions
 
-1. Phase 2: packed data cache, `EuroSATDataset`, augmentation, unlabelled pool, tests.
-2. Colab/Kaggle bootstrap notebook and a test run of loading data on a GPU runtime.
+1. Phase 3: the three models (CNN from scratch, ResNet-50 and ViT-Small with 13-channel input layers), the training loop and run logging.
+2. Overfit-one-batch smoke test on CPU, then the ResNet-50 RGB 100% baseline on Colab.
+3. Push to GitHub once it is confirmed, then run `notebooks/colab_setup.ipynb` on Colab and Kaggle.

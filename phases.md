@@ -31,16 +31,17 @@ Legend: `[x]` done · `[ ]` to do · *(optional)* = only if time and compute all
 
 **Goal:** one dataset class serves RGB and 13-band input, for both labelled and unlabelled data.
 
-- [ ] Pack the images into one array file per input type for fast loading (`data/cache/`): RGB about 0.33 GB, 13-band about 2.9 GB `uint16`
-- [ ] `EuroSATDataset(input={rgb,ms}, ids, transform)` reading from the packed file, with a fallback to the raw files
-- [ ] Normalisation using `splits/norm_stats.json` (per band, train only)
-- [ ] Augmentation that works the same for 3 or 13 channels: random flips, 90° rotations, random resized crop
-- [ ] Resize option: 64 px (CNN) or 224 px (ViT / ImageNet models)
-- [ ] Weak and strong augmentation pairs for semi-supervised learning. The strong one must be safe for 13 bands; colour-jitter style operations apply to RGB only.
-- [ ] Unlabelled-pool dataset (train ids not in the labelled subset; labels hidden)
-- [ ] DataLoader factory: seeded workers, settings that work on Colab/Kaggle
-- [ ] Tests: shapes, dtypes, normalised mean ≈ 0 / std ≈ 1 on train, labelled and unlabelled sets do not overlap
-- [ ] Colab/Kaggle bootstrap notebook (`notebooks/colab_setup.ipynb`): clone, install, download, check
+- [x] Pack the images into one array file per input type for fast loading (`data/cache/`): RGB 0.33 GB, 13-band 2.88 GB `uint16` → `scripts/build_cache.py`
+- [x] `EuroSATDataset` reading from the packed file (memory-mapped or loaded into RAM), with a fallback to the raw files → `make_dataset(modality, ids, ...)`
+- [x] Normalisation using `splits/norm_stats.json` (per band, train only)
+- [x] Augmentation that works the same for 3 or 13 channels: random flips and 90° rotations (the 8 symmetries of a square), random resized crop
+- [x] ~~Resize option in the data pipeline~~ → the data pipeline always works at 64 px. Models that need 224 px upsample on the GPU (Phase 3), which keeps the 2-core Colab CPU from slowing training.
+- [x] Weak and strong augmentation pairs for semi-supervised learning. **Changed from the plan:** the strong policy uses the same operations for RGB and 13-band input (one brightness/contrast change shared by all bands, noise, blur, cutout), not RGB-only colour jitter, so both input types get identical augmentation.
+- [x] Unlabelled-pool dataset (train ids not in the labelled subset; labels hidden)
+- [x] DataLoader factory (`DataConfig`, `build_loaders`): seeded workers, optional fixed number of steps per epoch, 2 workers by default
+- [x] Tests: shapes, normalised mean/std exactly 0/1 on the full train split, labelled and unlabelled sets do not overlap, cache identical to the raw files
+- [x] Colab/Kaggle setup notebook (`notebooks/colab_setup.ipynb`): clone, install, Drive link, download, check, GPU batch
+- [ ] Run the notebook once on Colab and once on Kaggle. **Needs the GitHub repo URL.**
 
 **Done when:** a batch of each input type loads on CPU and in Colab, and the tests pass.
 
