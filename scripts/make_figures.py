@@ -18,6 +18,10 @@ Writes (names fixed in main):
     tables/supervised_f1, supervised_acc, semi_supervised, per_class_f1  (each as .md and .tex)
 
 Design decisions:
+- Every output is one row of the `outputs` list in main: its name for the "skipped" message, whether its
+  inputs exist, and a function that builds it. One loop runs the rows in order. A row whose inputs do not
+  exist is left out silently; a row whose function returns None is reported as "skipped <name>: no data yet".
+  To add a figure or table, add a row.
 - groups.csv is mandatory; the script exits with an error if it is missing. Everything else is optional.
 - --fraction (default 1.0) selects the label fraction for the per-class heatmap, per-class table and
   confusion matrices; confusion matrices are also drawn for 1 percent labels when that fraction exists.
