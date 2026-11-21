@@ -1,0 +1,13 @@
+[vit_small_rgb_1pct_seed0] best epoch 26: val acc 0.9163 f1 0.9138 | test acc 0.9128 f1 0.9100 | 6.6 min
+[vit_small_rgb_10pct_seed0] best epoch 19: val acc 0.9773 f1 0.9765 | test acc 0.9775 f1 0.9770 | 6.5 min
+[vit_small_ms_1pct_seed0] best epoch 18: val acc 0.9245 f1 0.9215 | test acc 0.9277 f1 0.9251 | 6.7 min
+[vit_small_ms_10pct_seed0] best epoch 19: val acc 0.9788 f1 0.9780 | test acc 0.9780 f1 0.9773 | 6.9 min
+[vit_small_rgb_1pct_seed1] best epoch 25: val acc 0.9059 f1 0.8981 | test acc 0.9022 f1 0.8948 | 6.7 min
+[vit_small_rgb_10pct_seed1] best epoch 25: val acc 0.9793 f1 0.9789 | test acc 0.9748 f1 0.9741 | 6.7 min
+[vit_small_ms_1pct_seed1] best epoch 3: val acc 0.9062 f1 0.9017 | test acc 0.9030 f1 0.8983 | 3.1 min
+[vit_small_ms_10pct_seed1] best epoch 16: val acc 0.9793 f1 0.9788 | test acc 0.9770 f1 0.9762 | 6.2 min
+[vit_small_rgb_1pct_seed2] best epoch 17: val acc 0.9106 f1 0.9074 | test acc 0.9185 f1 0.9149 | 6.0 min
+[vit_small_rgb_10pct_seed2] best epoch 19: val acc 0.9753 f1 0.9748 | test acc 0.9728 f1 0.9721 | 6.5 min
+[vit_small_ms_1pct_seed2] best epoch 13: val acc 0.9205 f1 0.9172 | test acc 0.9160 f1 0.9118 | 5.5 min
+[vit_small_ms_10pct_seed2] best epoch 27: val acc 0.9785 f1 0.9780 | test acc 0.9743 f1 0.9733 | 7.2 min
+[resnet50_ms_100pct_seed0] best epoch 30: val acc 0.9928 f1 0.9926 | test acc 0.9911 f1 0.9905 | 41.7 min

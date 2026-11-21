@@ -128,6 +128,8 @@ python scripts/run_grid.py --plan pl                            # pseudo-label s
 python scripts/collect_results.py                               # tables in results/summary/
 python scripts/evaluate.py --examples resnet50_ms_1pct_seed0    # Phase 6: all metrics, comparisons, error grid
 python scripts/make_figures.py                                  # Phase 7: results/figures/*.png, results/tables/*.tex
+# Final results of this project come from the Colab logs (see docs/EVALUATION.md, 'Results taken from logs'):
+#   python scripts/parse_colab_logs.py <notebooks...>; python scripts/eval_from_logs.py; python scripts/make_figures.py --fraction 0.01
 ```
 
 Outputs go to `results/runs/<model>_<input>_<pct>pct_seed<s>/`. Pseudo-labelling is described in [docs/SSL.md](docs/SSL.md). See [docs/MODELS.md](docs/MODELS.md) for the models, how the first layer is set up for 13 bands, and the training details.

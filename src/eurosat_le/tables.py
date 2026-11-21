@@ -32,9 +32,12 @@ from eurosat_le.figures import FRACTION_LABEL, MODEL_LABEL, MODELS, MODALITY_LAB
 def _pm(mean: float, std: float, scale: float = 100.0, digits: int = 1) -> str:
     """Format "mean ± std" after multiplying both by `scale` (100 turns 0-1 scores into percent).
 
-    A NaN std (a single seed) is printed as 0.0.
+    A NaN std means a single seed. No spread was measured then, so the cell reads "mean (n=1)" and not
+    "± 0.0", which would suggest the seeds agreed exactly.
     """
-    return f"{mean * scale:.{digits}f} ± {0.0 if pd.isna(std) else std * scale:.{digits}f}"
+    if pd.isna(std):
+        return f"{mean * scale:.{digits}f} (n=1)"
+    return f"{mean * scale:.{digits}f} ± {std * scale:.{digits}f}"
 
 
 def _frac(f: float) -> str:
@@ -106,7 +109,8 @@ def semi_supervised_table(groups: pd.DataFrame, compare: dict[str, pd.DataFrame]
                 "Variant": "balanced" if variant == "plb" else "global τ",
                 "Supervised F1": f"{r['f1_a'] * 100:.1f}",
                 "Student F1": f"{r['f1_b'] * 100:.1f}",
-                "Δ (points)": f"{r['delta_f1_mean'] * 100:+.1f} ± {0.0 if pd.isna(r['delta_f1_std']) else r['delta_f1_std'] * 100:.1f}",
+                "Δ (points)": (f"{r['delta_f1_mean'] * 100:+.1f} (n=1)" if pd.isna(r["delta_f1_std"])
+                              else f"{r['delta_f1_mean'] * 100:+.1f} ± {r['delta_f1_std'] * 100:.1f}"),
                 "Seeds better": f"{int(r['seeds_b_better'])}/{int(r['n_seeds'])}",
             })
     return pd.DataFrame(rows) if rows else None

@@ -1,0 +1,19 @@
+[scratch_cnn_rgb_1pct_seed0] best epoch 57: val acc 0.7694 f1 0.7627 | test acc 0.7548 f1 0.7492 | 3.5 min
+[scratch_cnn_rgb_10pct_seed0] best epoch 48: val acc 0.9331 f1 0.9313 | test acc 0.9225 f1 0.9207 | 3.5 min
+[scratch_cnn_ms_1pct_seed0] best epoch 34: val acc 0.7862 f1 0.7840 | test acc 0.7835 f1 0.7806 | 5.1 min
+[scratch_cnn_ms_10pct_seed0] best epoch 60: val acc 0.9637 f1 0.9629 | test acc 0.9627 f1 0.9614 | 6.4 min
+[scratch_cnn_rgb_1pct_seed1] best epoch 55: val acc 0.7435 f1 0.7306 | test acc 0.7477 f1 0.7342 | 3.6 min
+[scratch_cnn_rgb_10pct_seed1] best epoch 51: val acc 0.9299 f1 0.9285 | test acc 0.9160 f1 0.9147 | 3.6 min
+[scratch_cnn_ms_1pct_seed1] best epoch 31: val acc 0.7820 f1 0.7767 | test acc 0.7793 f1 0.7741 | 4.8 min
+[scratch_cnn_ms_10pct_seed1] best epoch 57: val acc 0.9603 f1 0.9594 | test acc 0.9620 f1 0.9602 | 6.3 min
+[scratch_cnn_rgb_1pct_seed2] best epoch 58: val acc 0.7598 f1 0.7478 | test acc 0.7642 f1 0.7535 | 3.6 min
+[scratch_cnn_rgb_10pct_seed2] best epoch 57: val acc 0.9252 f1 0.9247 | test acc 0.9190 f1 0.9176 | 3.6 min
+[scratch_cnn_ms_1pct_seed2] best epoch 24: val acc 0.8062 f1 0.8048 | test acc 0.7899 f1 0.7875 | 4.1 min
+[scratch_cnn_ms_10pct_seed2] best epoch 52: val acc 0.9677 f1 0.9666 | test acc 0.9580 f1 0.9566 | 6.3 min
+[scratch_cnn_rgb_100pct_seed0] best epoch 60: val acc 0.9800 f1 0.9797 | test acc 0.9756 f1 0.9751 | 16.2 min
+[scratch_cnn_ms_100pct_seed0] best epoch 54: val acc 0.9899 f1 0.9894 | test acc 0.9881 f1 0.9875 | 27.6 min
+[vit_small_rgb_100pct_seed0] best epoch 21: val acc 0.9916 f1 0.9913 | test acc 0.9879 f1 0.9876 | 32.3 min
+[vit_small_ms_100pct_seed0] best epoch 28: val acc 0.9933 f1 0.9931 | test acc 0.9896 f1 0.9891 | 34.0 min
+[scratch_cnn_rgb_1pct_seed0_pl] teacher scratch_cnn_rgb_1pct_seed0: tau=0.99 (val precision 0.893), 12054/18708 pseudo-labels
+[scratch_cnn_rgb_1pct_seed0_pl] best epoch 33: val acc 0.7805 f1 0.7749 | test acc 0.7726 f1 0.7676 | 8.8 min
+[scratch_cnn_rgb_10pct_seed0_pl] teacher scratch_cnn_rgb_10pct_seed0: tau=0.65 (val precision 0.951), 16184/17009 pseudo-labels

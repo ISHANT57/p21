@@ -157,15 +157,16 @@ def test_cli_needs_groups(tmp_path):
     assert res.returncode != 0 and "run scripts/evaluate.py first" in res.stderr
 
 
-def test_single_seed_cell_shows_zero_spread_and_figure_draws(tmp_path):
-    # Protects the 100% runs, which use one seed: groups.csv then has a NaN std. The table must print
-    # 0.0 for the spread (never "nan") and the label-efficiency figure must still be drawn.
+def test_single_seed_cell_says_n1_and_figure_draws(tmp_path):
+    # Protects the 100% runs, which use one seed: groups.csv then has a NaN std. The table must say
+    # "(n=1)", never "nan" and never "± 0.0" (no spread was measured), and the label-efficiency figure
+    # must still be drawn.
     g = _groups()
     one = (g["model"] == "resnet50") & (g["modality"] == "rgb") & (g["fraction"] == 1.0)
     g.loc[one, ["n_seeds", "test_f1_std", "test_acc_std"]] = [1, np.nan, np.nan]
     for metric in ("f1", "acc"):
         cell = tables.supervised_table(g, metric=metric).at["ResNet-50, RGB (3 bands)", "100%"]
-        assert cell.rstrip("*").endswith("± 0.0") and "nan" not in cell.lower()
+        assert cell.rstrip("*").endswith("(n=1)") and "nan" not in cell.lower() and "±" not in cell
     assert figures.label_efficiency(g, tmp_path / "f1.png").stat().st_size > 1000
     assert figures.label_efficiency(g, tmp_path / "acc.png", metric="acc").stat().st_size > 1000
 

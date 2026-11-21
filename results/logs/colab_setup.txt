@@ -1,0 +1,30 @@
+[resnet50_rgb_100pct_seed0] best epoch 29: val acc 0.9889 f1 0.9883 | test acc 0.9867 f1 0.9863 | 43.1 min
+[resnet50_rgb_1pct_seed0] best epoch 7: val acc 0.8966 f1 0.8916 | test acc 0.8904 f1 0.8853 | 5.4 min
+[resnet50_rgb_10pct_seed0] best epoch 28: val acc 0.9669 f1 0.9668 | test acc 0.9632 f1 0.9628 | 9.5 min
+[resnet50_ms_1pct_seed0] best epoch 29: val acc 0.9134 f1 0.9115 | test acc 0.9015 f1 0.8988 | 10.1 min
+[resnet50_ms_10pct_seed0] best epoch 18: val acc 0.9775 f1 0.9768 | test acc 0.9733 f1 0.9724 | 9.5 min
+[resnet50_rgb_1pct_seed1] best epoch 29: val acc 0.8909 f1 0.8858 | test acc 0.8894 f1 0.8845 | 9.4 min
+[resnet50_rgb_10pct_seed1] best epoch 30: val acc 0.9699 f1 0.9688 | test acc 0.9684 f1 0.9676 | 9.5 min
+[resnet50_ms_1pct_seed1] best epoch 28: val acc 0.8988 f1 0.8948 | test acc 0.8998 f1 0.8961 | 10.0 min
+[resnet50_ms_10pct_seed1] best epoch 29: val acc 0.9810 f1 0.9804 | test acc 0.9783 f1 0.9771 | 10.1 min
+[resnet50_rgb_1pct_seed2] best epoch 14: val acc 0.8961 f1 0.8931 | test acc 0.8881 f1 0.8845 | 7.5 min
+[resnet50_rgb_10pct_seed2] best epoch 21: val acc 0.9659 f1 0.9659 | test acc 0.9620 f1 0.9614 | 9.5 min
+[resnet50_ms_1pct_seed2] best epoch 15: val acc 0.8946 f1 0.8911 | test acc 0.8904 f1 0.8867 | 8.4 min
+[resnet50_ms_10pct_seed2] best epoch 13: val acc 0.9726 f1 0.9718 | test acc 0.9709 f1 0.9697 | 7.8 min
+[resnet50_rgb_1pct_seed0_pl] teacher resnet50_rgb_1pct_seed0: tau=0.89 (val precision 0.950), 15935/18708 pseudo-labels
+[resnet50_rgb_1pct_seed0_pl] best epoch 2: val acc 0.9195 f1 0.9161 | test acc 0.9123 f1 0.9095 | 12.4 min
+[resnet50_rgb_10pct_seed0_pl] teacher resnet50_rgb_10pct_seed0: tau=0.50 (val precision 0.969), 16952/17009 pseudo-labels
+[resnet50_rgb_10pct_seed0_pl] best epoch 8: val acc 0.9689 f1 0.9687 | test acc 0.9649 f1 0.9650 | 14.4 min
+[resnet50_ms_1pct_seed0_pl] teacher resnet50_ms_1pct_seed0: tau=0.87 (val precision 0.950), 17109/18708 pseudo-labels
+[resnet50_ms_1pct_seed0_pl] best epoch 10: val acc 0.9225 f1 0.9205 | test acc 0.9225 f1 0.9205 | 13.8 min
+[resnet50_ms_10pct_seed0_pl] teacher resnet50_ms_10pct_seed0: tau=0.50 (val precision 0.979), 16964/17009 pseudo-labels
+[resnet50_ms_10pct_seed0_pl] best epoch 9: val acc 0.9783 f1 0.9781 | test acc 0.9760 f1 0.9754 | 14.9 min
+[resnet50_rgb_1pct_seed1_pl] teacher resnet50_rgb_1pct_seed1: tau=0.90 (val precision 0.951), 16382/18708 pseudo-labels
+[resnet50_rgb_1pct_seed1_pl] best epoch 8: val acc 0.9131 f1 0.9086 | test acc 0.9123 f1 0.9086 | 12.8 min
+[resnet50_rgb_10pct_seed1_pl] teacher resnet50_rgb_10pct_seed1: tau=0.50 (val precision 0.971), 16964/17009 pseudo-labels
+[resnet50_rgb_10pct_seed1_pl] best epoch 6: val acc 0.9746 f1 0.9737 | test acc 0.9696 f1 0.9691 | 14.4 min
+[resnet50_ms_1pct_seed1_pl] teacher resnet50_ms_1pct_seed1: tau=0.94 (val precision 0.952), 16635/18708 pseudo-labels
+[resnet50_ms_1pct_seed1_pl] best epoch 4: val acc 0.9232 f1 0.9216 | test acc 0.9230 f1 0.9201 | 13.5 min
+[resnet50_ms_10pct_seed1_pl] teacher resnet50_ms_10pct_seed1: tau=0.50 (val precision 0.982), 16980/17009 pseudo-labels
+[resnet50_ms_10pct_seed1_pl] best epoch 9: val acc 0.9798 f1 0.9793 | test acc 0.9793 f1 0.9786 | 15.0 min
+[resnet50_rgb_1pct_seed2_pl] teacher resnet50_rgb_1pct_seed2: tau=0.93 (val precision 0.951), 16033/18708 pseudo-labels
