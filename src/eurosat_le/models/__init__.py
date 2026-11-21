@@ -9,6 +9,29 @@
 
 For 13-band input, the first convolution of a pretrained model (ResNet conv1 or
 the ViT patch embedding) is widened with `adapt_input_conv`; see docs/MODELS.md.
+
+Where it fits (Phase 3): `eurosat_le.train.engine.run` calls `build_model` once per run, and
+`scripts/smoke_test.py` calls it for every model / input-type pair.
+
+Key design decisions
+- Every backbone is wrapped in `Classifier`, which upsamples the 64x64 batch to the backbone's
+  input size (224 px for the pretrained models) on the device. The data pipeline therefore
+  always stays at 64 px.
+- Pretrained weights are loaded as the original 3-channel RGB checkpoint first, and only then is
+  the first convolution replaced by a wider one (`_replace_first_conv`). The new filters are
+  derived from the pretrained RGB filters by `adapt_input_conv`:
+    * mode "mean" (default): the R, G, B filters are copied to the Sentinel-2 channels B04, B03,
+      B02 (positions 3, 2, 1 of the 13-band file, `MS_RGB_IDX`); each of the other 10 bands gets
+      the mean of the three RGB filters; all 13 filters are then scaled by 3/13. Every band is
+      standardised to unit variance, so this keeps the summed first-layer response at about the
+      size the pretrained network saw with 3 channels.
+    * mode "zero" (ablation): RGB filters copied unscaled, the other 10 bands start at zero, so
+      the 13-band network initially behaves exactly like the RGB network.
+  Nothing in ImageNet pretraining knows what NIR / red-edge / SWIR mean, so the extra bands are
+  only learned during fine-tuning (see the limitations in docs/MODELS.md).
+- The first-layer bias (if any) is copied unchanged; every other layer keeps its pretrained weights.
+- `vit_scratch` and `scratch_cnn` are randomly initialised; their first layer is created directly
+  with `in_chans` channels, so `adapt_input_conv` is not used for them.
 """
 
 from __future__ import annotations
@@ -32,7 +55,16 @@ ARCHS = {
 
 
 class Classifier(nn.Module):
-    """Upsamples the 64x64 input on the device to the backbone's input size, then classifies."""
+    """Upsamples the 64x64 input on the device to the backbone's input size, then classifies.
+
+    Args:
+        backbone: a network mapping (N, C, input_size, input_size) to (N, num_classes) logits.
+        input_size: side length (px) the backbone expects. If a batch already has this size
+            (e.g. the scratch CNN at 64 px) it is passed through untouched.
+
+    The forward pass returns raw logits (no softmax). Interpolation is bilinear and runs on the
+    same device as the batch, so the loaders never have to produce 224 px images.
+    """
 
     def __init__(self, backbone: nn.Module, input_size: int):
         super().__init__()
@@ -46,6 +78,14 @@ class Classifier(nn.Module):
 
 def adapt_input_conv(weight: torch.Tensor, in_chans: int, rgb_idx=MS_RGB_IDX, mode: str = "mean") -> torch.Tensor:
     """Widen a pretrained RGB filter bank (out, 3, k, k) to `in_chans` input channels.
+
+    Args:
+        weight: pretrained first-layer weights, shape (out, 3, k, k), channel order R, G, B.
+        in_chans: number of input channels wanted (13 for the multispectral input).
+        rgb_idx: destination channel of R, G, B in the wide input; default (B04, B03, B02).
+        mode: "mean" or "zero" (see below).
+    Returns:
+        A new tensor of shape (out, in_chans, k, k); `weight` itself is never modified.
 
     in_chans == 3: unchanged. Otherwise:
       mode="mean": the R, G, B filters go to the channels in `rgb_idx` (B04, B03, B02);
@@ -61,17 +101,23 @@ def adapt_input_conv(weight: torch.Tensor, in_chans: int, rgb_idx=MS_RGB_IDX, mo
     assert cin == 3, f"expected an RGB filter bank, got {cin} input channels"
     new = torch.zeros(out, in_chans, kh, kw, dtype=weight.dtype)
     if mode == "mean":
-        new[:] = weight.mean(dim=1, keepdim=True)
+        new[:] = weight.mean(dim=1, keepdim=True)  # (out,1,k,k) broadcast: every band starts as the mean filter
     elif mode != "zero":
         raise ValueError(f"unknown init mode {mode!r}")
-    for rgb_channel, band in enumerate(rgb_idx):
+    for rgb_channel, band in enumerate(rgb_idx):  # overwrite the mean filter with the real R/G/B filter
         new[:, band] = weight[:, rgb_channel]
     if mode == "mean":
+        # Applied to ALL channels, RGB included, so the RGB filters end up weaker than the pretrained ones.
         new *= 3 / in_chans
     return new
 
 
 def _replace_first_conv(model: nn.Module, path: str, in_chans: int, mode: str) -> None:
+    """Swap the Conv2d at the dotted `path` (e.g. "conv1", "patch_embed.proj") for an `in_chans` one.
+
+    Modifies `model` in place. Kernel size, stride, padding, dilation, groups and bias presence are
+    kept; the weights come from `adapt_input_conv` and the bias (if any) is copied unchanged.
+    """
     parent_path, _, attr = path.rpartition(".")
     parent = model.get_submodule(parent_path) if parent_path else model
     old: nn.Conv2d = getattr(parent, attr)
@@ -86,6 +132,20 @@ def _replace_first_conv(model: nn.Module, path: str, in_chans: int, mode: str) -
 
 def build_model(name: str, in_chans: int = 3, num_classes: int = 10, pretrained: bool = True,
                 init_mode: str = "mean", input_size: int | None = None, **kwargs) -> Classifier:
+    """Build the named architecture (a key of `ARCHS`) wrapped in a `Classifier`.
+
+    Args:
+        name: "scratch_cnn", "resnet50", "vit_small" or "vit_scratch".
+        in_chans: 3 for RGB, 13 for multispectral input.
+        num_classes: size of the output layer (10 EuroSAT classes).
+        pretrained: load ImageNet weights for resnet50 / vit_small (timm downloads them on first use);
+            ignored for the two randomly initialised models.
+        init_mode: 13-band first-layer init, "mean" or "zero"; see `adapt_input_conv`.
+        input_size: override the backbone's input resolution (default: the value in `ARCHS`).
+        **kwargs: forwarded to the backbone constructor.
+    Returns:
+        The model on CPU; the caller moves it to the device.
+    """
     spec = ARCHS[name]
     size = input_size or spec["input_size"]
     if name == "scratch_cnn":

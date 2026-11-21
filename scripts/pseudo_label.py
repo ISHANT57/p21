@@ -8,6 +8,16 @@ Usage:
 
 The student reuses the teacher's config (model, input, fraction, seed, hyper-parameters)
 and trains on labelled + pseudo-labelled images. tau is chosen on the validation set.
+
+Command-line wrapper around eurosat_le.ssl.self_training.train_student (see docs/SSL.md).
+- tau is the smallest confidence threshold at which the teacher's validation predictions are at
+  least --target-precision (default 0.95) correct; the test set plays no part in choosing it.
+- --balance caps each predicted class at its labelled-set share of the confident images.
+- The student is saved as results/runs/<teacher>_pl (or _pl2, ... when the teacher is itself a
+  student); --set name_suffix=... chooses another suffix, e.g. to keep balanced students separate.
+- The true labels of the unlabelled images are only read after training, to report pseudo-label
+  accuracy in pseudo_label_quality.json; they never influence selection or training.
+- A student that already has metrics.json is skipped unless --overwrite is given.
 """
 
 import argparse
