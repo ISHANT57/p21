@@ -52,13 +52,16 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   ├── run_grid.py          # tuning sweep / 54-run grid / pseudo-label students; resumable
 │   ├── pseudo_label.py      # one pseudo-label student from a teacher run
 │   ├── collect_results.py   # runs -> quick summary tables
-│   └── evaluate.py          # full evaluation from saved predictions
+│   ├── evaluate.py          # full evaluation from saved predictions
+│   └── make_figures.py      # report figures and tables from the evaluation tables
 ├── configs/                 # one YAML per model
 ├── notebooks/colab_setup.ipynb  # Colab/Kaggle: clone, install, data, checks
 ├── splits/                  # COMMITTED split files: split.csv, subsets/, manifest.json, norm_stats.json
 ├── results/
 │   ├── dataset_inspection/  # committed dataset figures + summary
+│   ├── figures/, tables/    # report figures and tables (make_figures.py)
 │   └── runs/                # per-run outputs (git-ignored)
+├── report/                  # IEEE LaTeX report skeleton
 ├── tests/                   # pytest unit tests (no dataset needed)
 ├── docs/                    # DATA.md (data + splits), MODELS.md (models + training), SSL.md (pseudo-labelling), EVALUATION.md
 ├── phases.md                # phase plan + task checklists
@@ -124,6 +127,7 @@ python scripts/run_grid.py --plan main --models resnet50 --max-hours 11   # resu
 python scripts/run_grid.py --plan pl                            # pseudo-label students (Phase 5)
 python scripts/collect_results.py                               # tables in results/summary/
 python scripts/evaluate.py --examples resnet50_ms_1pct_seed0    # Phase 6: all metrics, comparisons, error grid
+python scripts/make_figures.py                                  # Phase 7: results/figures/*.png, results/tables/*.tex
 ```
 
 Outputs go to `results/runs/<model>_<input>_<pct>pct_seed<s>/`. Pseudo-labelling is described in [docs/SSL.md](docs/SSL.md). See [docs/MODELS.md](docs/MODELS.md) for the models, how the first layer is set up for 13 bands, and the training details.

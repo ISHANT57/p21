@@ -1,0 +1,117 @@
+% IEEE two-column report skeleton (Phase 7). Replace every \TODO{...} before submission.
+% Build: latexmk -pdf main.tex   (needs a LaTeX install with IEEEtran and booktabs)
+\documentclass[conference]{IEEEtran}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\figdir}{../results/figures}
+\newcommand{\tabdir}{../results/tables}
+
+\begin{document}
+
+\title{Label-Efficient Land-Use Classification on EuroSAT:\\
+RGB versus 13-Band Input, Supervised versus Pseudo-Labelled Training}
+
+\author{\IEEEauthorblockN{\TODO{Author names}}
+\IEEEauthorblockA{\TODO{Course, institution, e-mail}}}
+
+\maketitle
+
+\begin{abstract}
+\TODO{Four to six sentences: the question (how does accuracy fall with fewer labels, do the extra Sentinel-2 bands help, does pseudo-labelling help), the setup (3 models $\times$ 2 inputs $\times$ 3 label fractions $\times$ 3 seeds), the main numbers, and the main conclusion.}
+\end{abstract}
+
+\begin{IEEEkeywords}
+EuroSAT, Sentinel-2, label efficiency, multispectral, pseudo-labelling, transfer learning
+\end{IEEEkeywords}
+
+\section{Introduction}
+\TODO{Why labels are costly for land-use mapping; the three questions this report answers; a short list of contributions.}
+
+\section{Related Work}
+EuroSAT~\cite{helber2019eurosat} provides 27{,}000 labelled Sentinel-2 patches in 10 classes, in RGB and 13 spectral bands.
+\TODO{Prior results on EuroSAT; transfer learning from ImageNet~\cite{he2016resnet,dosovitskiy2021vit}; pseudo-labelling~\cite{lee2013pseudo} and FixMatch~\cite{sohn2020fixmatch}.}
+
+\section{Data and Splits}
+\TODO{Dataset description (docs/DATA.md). Stratified 70/15/15 split with seed 42: 18{,}899 train, 4{,}051 validation, 4{,}050 test. Nested labelled subsets of 1\% (191), 10\% (1{,}890) and 100\% of the training images, 3 seeds. Normalisation statistics from the training split only. Note the band-order finding: B8A is stored last in the 13-band files.}
+
+\section{Method}
+\subsection{Models}
+\TODO{Scratch CNN (2.8M parameters), ResNet-50 (23.5M, ImageNet), ViT-Small (21.7M, ImageNet-21k). The 13-band first layer: RGB filters copied to B04/B03/B02, the mean filter for the other bands, all scaled by $3/13$ (docs/MODELS.md).}
+
+\subsection{Training}
+\TODO{AdamW~\cite{loshchilov2019adamw}, warm-up plus cosine schedule, mixed precision, early stopping on validation macro-F1. Budget rule: $\max(\text{epochs} \times \text{one pass},\ \text{min\_steps})$ optimiser steps. Learning rate chosen on validation only (tuning sweep, test set never used).}
+
+\subsection{Pseudo-labelling}
+\TODO{Teacher = the supervised run; threshold $\tau$ chosen on validation as the smallest value with confident-prediction precision $\geq 95\%$; student trains on labelled plus pseudo-labelled images with the same budget (docs/SSL.md). Class-balanced variant.}
+
+\subsection{Evaluation}
+Accuracy, macro-F1, per-class F1, expected calibration error, and paired comparisons matched on seed with 95\% paired bootstrap intervals over the test set. Every number is recomputed from saved predictions (\texttt{scripts/evaluate.py}).
+
+\section{Experimental Setup}
+\TODO{Hardware (GPU type, hours), software versions (requirements-lock.txt), number of runs finished, anything that was skipped.}
+
+\section{Results}
+\subsection{Supervised label efficiency}
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{\figdir/label_efficiency_f1.png}
+\caption{Test macro-F1 against the share of labelled training images. \TODO{one-sentence takeaway.}}
+\label{fig:label_efficiency}
+\end{figure*}
+\input{\tabdir/supervised_f1.tex}
+\TODO{Discuss: how steeply each model loses accuracy from 100\% to 1\%; pretrained against scratch.}
+
+\subsection{Value of the extra spectral bands}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{\figdir/rgb_vs_ms_gain.png}
+\caption{Gain in test macro-F1 of 13-band over RGB input, per seed. \TODO{takeaway.}}
+\label{fig:gain}
+\end{figure}
+\TODO{Where the gain is largest (which fraction, which model); per-class view; the confusion matrices (Fig.~\ref{fig:confusion}).}
+
+\subsection{Pseudo-labelling}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{\figdir/pseudo_label_gain.png}
+\caption{Change in test macro-F1 of each pseudo-label student against its own teacher. \TODO{takeaway.}}
+\label{fig:pl}
+\end{figure}
+\input{\tabdir/semi_supervised.tex}
+\TODO{Pseudo-label accuracy and coverage; the class-skew finding for global $\tau$ and what the balanced variant changed.}
+
+\subsection{Error analysis}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{\figdir/per_class_f1_100pct.png}
+\caption{Per-class test F1 at 100\% labels.}
+\label{fig:perclass}
+\end{figure}
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{\figdir/confusion_1pct.png}
+\caption{Row-normalised confusion matrices at 1\% labels. \TODO{most confused pairs.}}
+\label{fig:confusion}
+\end{figure*}
+
+\section{Discussion}
+\TODO{Answer the three questions directly, with the numbers.}
+
+\section{Limitations}
+\begin{itemize}
+\item A random split can overestimate accuracy, because neighbouring patches look alike.
+\item Three seeds give wide uncertainty; we report per-seed differences and how many intervals exclude zero, not p-values.
+\item \TODO{GPU budget, skipped optional runs, single pretrained backbone for pseudo-labelling.}
+\end{itemize}
+
+\section{Conclusion}
+\TODO{Three to four sentences.}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
