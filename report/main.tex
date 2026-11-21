@@ -82,7 +82,9 @@ A supervised run with 1\% or 10\% of the labels acts as the \emph{teacher}. Afte
 Accuracy, macro-F1, per-class F1, expected calibration error, and paired comparisons matched on seed with 95\% paired bootstrap intervals over the test set. Every number is recomputed from saved predictions (\texttt{scripts/evaluate.py}).
 
 \section{Experimental Setup}
-All runs were trained on free-tier cloud GPUs (NVIDIA Tesla T4, 15 GB). As a sanity check, ResNet-50 on RGB with 100\% of the labels reaches 98.67\% test accuracy and 98.63\% macro-F1 (43 minutes), in line with the about 98.6\% reported for this benchmark~\cite{helber2019eurosat}. A 1\% or 10\% run of a pretrained model takes about 10 minutes. \TODO{State the final design after the runs finish: which cells were run with one seed instead of three (the 100\% runs, to fit the time limit), the models and fractions used for pseudo-labelling, which optional experiments were skipped, the total number of runs and GPU hours, and the software versions from \texttt{requirements-lock.txt}.}
+All runs were trained on free-tier cloud GPUs (NVIDIA Tesla T4, 15 GB). As a sanity check, ResNet-50 on RGB with 100\% of the labels reaches 98.67\% test accuracy and 98.63\% macro-F1 (43 minutes), in line with the about 98.6\% reported for this benchmark~\cite{helber2019eurosat}. A 1\% or 10\% run of a pretrained model takes about 10 minutes.
+
+To fit the time limit the full grid was reduced in four ways. (i)~The 1\% and 10\% cells use three seeds (0, 1, 2), but the 100\% cells use one seed (0), so they have no standard deviation; this gives $3\times2\times2\times3 + 3\times2 = 42$ supervised runs. (ii)~Learning rates come from a short sweep on the validation set for ResNet-50 and the scratch CNN at 10\% labels (see the Method section); ViT-Small uses its default rate. (iii)~Pseudo-labelling is run for ResNet-50 and the scratch CNN at 1\% and 10\% labels, for both inputs and three seeds each, not for ViT-Small. ResNet-50 students train for 10 epochs, about the same compute as their teachers. (iv)~The optional experiments (class-balanced students, a second self-training round, a band ablation, FixMatch) were not run. \TODO{Number of pseudo-label students that finished, total GPU hours, and the software versions from \texttt{requirements-lock.txt}.}
 
 \section{Results}
 \subsection{Supervised label efficiency}
@@ -139,7 +141,7 @@ All runs were trained on free-tier cloud GPUs (NVIDIA Tesla T4, 15 GB). As a san
 \item The band B10 (cirrus) carries almost no surface information (mean about 12 digital numbers) and is kept so that all 13 bands are used; we did not run an ablation without it.
 \item Students train on more images and for more steps than their teachers, so part of any pseudo-labelling gain may come from the extra compute. The teacher's weights were also selected on the validation set used to choose $\tau$, so its validation precision can be slightly optimistic; we report the measured accuracy of the pseudo-labels.
 \item Three seeds give wide uncertainty; we report per-seed differences and how many intervals exclude zero, not p-values.
-\item \TODO{GPU budget, skipped optional runs, single pretrained backbone for pseudo-labelling.}
+\item The compute budget was a few free-tier T4 sessions, so the 100\% cells have one seed and no error bars, ViT-Small has no learning-rate sweep and no pseudo-labelling, and the optional experiments were skipped. A ViT-Small that is better tuned could change its ranking against ResNet-50.
 \end{itemize}
 
 \section{Conclusion}
