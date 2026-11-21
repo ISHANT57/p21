@@ -10,8 +10,8 @@ The plan and its task lists are in [phases.md](phases.md). Update this file when
 | Phase | Title | State | Done |
 |---|---|---|---|
 | 1 | Repository, download, inspection, splits | ✅ Done | 2026-10-30 |
-| 2 | Preprocessing, augmentation, loaders | ✅ Done (local), Colab test pending | 2026-10-30 |
-| 3 | Models and working baseline | ⏳ Code done; baseline waiting for the user's Colab run (zip ready) | |
+| 2 | Preprocessing, augmentation, loaders | ✅ Done; Colab test passed 2026-11-21, Kaggle test pending | 2026-10-30 |
+| 3 | Models and working baseline | ✅ Done: baseline reproduced on Colab (98.67% test accuracy) | 2026-11-21 |
 | 4 | Supervised label-efficiency runs (54) | ⏳ Tooling done; GPU runs pending | |
 | 5 | Pseudo-labelling (24 runs) | ⏳ Code done; GPU runs pending (they need the Phase 4 teachers) | |
 | 6 | Evaluation | ⏳ Code done; waiting for real runs | |
@@ -31,6 +31,12 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 | *(optional)* Band ablation | n/a | 0 |
 
 ## Change log
+
+### 2026-11-21: Baseline reproduced on Colab
+- ResNet-50, RGB, 100% labels, seed 0, Tesla T4: **test accuracy 0.9867, macro-F1 0.9863**, validation accuracy 0.9889, best epoch 29 of 30, 43.1 min. Target was ≥ 97%; the EuroSAT paper reports about 98.6%.
+- The best epoch was the last one, so early stopping never triggered. A 100% pretrained run takes about 43 min (86 s per epoch of 295 steps, about 0.29 s per step).
+- On the same Colab session: 69 tests passed (62 s) and the GPU smoke test passed 8/8 model × input combinations.
+- Time plan (deadline 2026-11-22 night): no tuning sweep (default `lr` from the configs); 100% runs with seed 0 only; pseudo-labelling for ResNet-50 at 1% and 10%; optional runs dropped. State these cuts in the report.
 
 ### 2026-11-21: Phase 7 code and report skeleton (branch `feat/report`)
 - `src/eurosat_le/figures.py` and `scripts/make_figures.py` build, from `results/summary/eval/`: label-efficiency curves (macro-F1 and accuracy), RGB-vs-13-band gain per seed, pseudo-label gain per seed, confusion matrices, a per-class F1 heatmap. A figure whose inputs are missing is skipped with a message.

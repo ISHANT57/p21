@@ -41,7 +41,8 @@ Legend: `[x]` done · `[ ]` to do · *(optional)* = only if time and compute all
 - [x] DataLoader factory (`DataConfig`, `build_loaders`): seeded workers, optional fixed number of steps per epoch, 2 workers by default
 - [x] Tests: shapes, normalised mean/std exactly 0/1 on the full train split, labelled and unlabelled sets do not overlap, cache identical to the raw files
 - [x] Colab/Kaggle setup notebook (`notebooks/colab_setup.ipynb`): clone, install, Drive link, download, check, GPU batch
-- [ ] Run the notebook once on Colab and once on Kaggle. **Needs the GitHub repo URL.**
+- [x] Notebook run on Colab (T4) on 2026-11-21: download, splits check, cache, 69 tests passed, one GPU batch per input type
+- [ ] Run the notebook once on Kaggle
 
 **Done when:** a batch of each input type loads on CPU and in Colab, and the tests pass.
 
@@ -64,7 +65,7 @@ Legend: `[x]` done · `[ ]` to do · *(optional)* = only if time and compute all
 - [x] YAML configs in `configs/`, one per model; `scripts/train.py` takes `--modality/--fraction/--seed` and `--set key=value` overrides; finished runs are skipped
 - [x] Smoke test (`scripts/smoke_test.py`): every model × input type memorises one batch on CPU with pretrained weights (8/8 pass)
 - [x] Local CPU check: scratch CNN, RGB, 10% labels; validation accuracy 42% → 71% in 5 epochs
-- [ ] **Baseline:** ResNet-50, RGB, 100% labels on Colab. Target ≥ 97% test accuracy (the paper reports about 98.6%). **Needs the GitHub repo** (or a manual upload) to run on Colab.
+- [x] **Baseline:** ResNet-50, RGB, 100% labels on Colab T4: test accuracy 98.67%, macro-F1 98.63%, best epoch 29 of 30, 43.1 min (target ≥ 97%; the paper reports about 98.6%). Smoke test: 8/8 passed on the GPU.
 
 **Done when:** the baseline is reproduced and every model passes the smoke test with both input types.
 
