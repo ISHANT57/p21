@@ -57,58 +57,76 @@ def main() -> None:
     groups, per_class = read(ev / "groups.csv"), read(ev / "per_class.csv")
     if groups is None:
         raise SystemExit(f"{ev / 'groups.csv'} not found: run scripts/evaluate.py first")
-    made: list[Path] = []
+    best = tab.best_model(groups, args.fraction)
+    has_supervised = (groups["variant"] == "supervised").any()
+    pl_pairs = {v: read(ev / f"compare_supervised_vs_{v}_pairs.csv") for v in ("pl", "plb")}
+    # Summarised (over seeds) teacher-vs-student tables, not the per-seed _pairs files used by the figure.
+    compare = {v: read(ev / f"compare_supervised_vs_{v}.csv") for v in ("pl", "plb")}
+    # rgb_vs_ms_gain wants a DataFrame, so a missing CSV becomes an empty one (-> the figure returns None).
+    rgb_vs_ms = read(ev / "compare_rgb_vs_ms_pairs.csv")
+    rgb_vs_ms = pd.DataFrame() if rgb_vs_ms is None else rgb_vs_ms
 
-    def keep(result, what: str) -> None:
-        """Collect the written path(s) of one output; report a skipped output (None result) by name."""
+    def confusion_mats(f: float) -> dict:
+        """Panels for the best model at fraction `f`: title -> [10, 10] matrix, for the inputs that have a CSV."""
+        mats = {}
+        for mo in ("rgb", "ms"):
+            cm = read(ev / "confusion" / (CONF_GROUP.format(model=best, modality=mo, pct=f * 100) + ".csv"))
+            if cm is not None:
+                # The CSV has the class names as first column (index); keep only the [10, 10] numbers.
+                mats[f"{fig.MODEL_LABEL[best]}, {fig.MODALITY_LABEL[mo]}"] = cm.set_index(cm.columns[0]).to_numpy()
+        return mats
+
+    def table(df, name: str, caption: str):
+        """Write one table (.md and .tex), or return None if its data is missing."""
+        return None if df is None else tab.write_table(df, td, name, caption)
+
+    # One row per output: (name used in the "skipped" message, whether its inputs exist, what builds it).
+    # A row whose inputs do not exist is left out silently; a row that returns None is reported as skipped.
+    # The rows run in this order, which is the order of the final list of files.
+    outputs = [
+        ("label-efficiency curves", True,
+         lambda: fig.label_efficiency(groups, fd / "label_efficiency_f1.png")),
+        ("label-efficiency (accuracy)", True,
+         lambda: fig.label_efficiency(groups, fd / "label_efficiency_acc.png", metric="acc")),
+        ("RGB vs 13-band gain", True,
+         lambda: fig.rgb_vs_ms_gain(rgb_vs_ms, fd / "rgb_vs_ms_gain.png")),
+        ("pseudo-label gains", True,
+         lambda: fig.pseudo_label_gain(pl_pairs, fd / "pseudo_label_gain.png")),
+        ("per-class F1 heatmap", per_class is not None,
+         lambda: fig.per_class_heatmap(per_class, args.fraction, fd / f"per_class_f1_{args.fraction * 100:g}pct.png")),
+    ]
+    if best:
+        # The chosen fraction plus 1 percent (the label-scarce case), limited to fractions that were run.
+        for f in sorted({args.fraction, 0.01} & set(groups["fraction"])):
+            outputs.append((f"confusion matrices at {f:.0%}", True,
+                            lambda f=f: fig.confusion_grid(
+                                confusion_mats(f), fd / f"confusion_{f * 100:g}pct.png",
+                                f"Confusion matrices (rows sum to 100), {fig.FRACTION_LABEL.get(round(f, 4))} labels, "
+                                "mean of 3 seeds")))
+    outputs += [
+        ("supervised F1", has_supervised,
+         lambda: table(tab.supervised_table(groups), "supervised_f1",
+                       "Test macro-F1 (\\%), mean $\\pm$ std over 3 seeds.")),
+        ("supervised accuracy", has_supervised,
+         lambda: table(tab.supervised_table(groups, metric="acc"), "supervised_acc",
+                       "Test accuracy (\\%), mean $\\pm$ std over 3 seeds.")),
+        ("semi-supervised table", True,
+         lambda: table(tab.semi_supervised_table(groups, compare), "semi_supervised",
+                       "Pseudo-labelling against the supervised teacher, matched on seed.")),
+        ("per-class table", bool(best) and per_class is not None,
+         lambda: table(tab.per_class_table(per_class, best, args.fraction), "per_class_f1",
+                       f"Per-class test F1 (\\%) for {fig.MODEL_LABEL[best]}.")),
+    ]
+
+    made: list[Path] = []
+    for what, inputs_exist, build in outputs:
+        if not inputs_exist:
+            continue
+        result = build()
         if result is None:
             print(f"skipped {what}: no data yet")
         else:
             made.extend(result if isinstance(result, list) else [result])
-
-    # ---- figures ---------------------------------------------------------------------------------
-    keep(fig.label_efficiency(groups, fd / "label_efficiency_f1.png"), "label-efficiency curves")
-    keep(fig.label_efficiency(groups, fd / "label_efficiency_acc.png", metric="acc"), "label-efficiency (accuracy)")
-    # rgb_vs_ms_gain wants a DataFrame, so a missing CSV becomes an empty one (-> the figure returns None).
-    keep(fig.rgb_vs_ms_gain(read(ev / "compare_rgb_vs_ms_pairs.csv") if (ev / "compare_rgb_vs_ms_pairs.csv").exists()
-                            else pd.DataFrame(), fd / "rgb_vs_ms_gain.png"), "RGB vs 13-band gain")
-    pl_pairs = {v: read(ev / f"compare_supervised_vs_{v}_pairs.csv") for v in ("pl", "plb")}
-    keep(fig.pseudo_label_gain(pl_pairs, fd / "pseudo_label_gain.png"), "pseudo-label gains")
-    if per_class is not None:
-        keep(fig.per_class_heatmap(per_class, args.fraction, fd / f"per_class_f1_{args.fraction * 100:g}pct.png"),
-             "per-class F1 heatmap")
-
-    best = tab.best_model(groups, args.fraction)
-    if best:
-        # The chosen fraction plus 1 percent (the label-scarce case), limited to fractions that were run.
-        for f in sorted({args.fraction, 0.01} & set(groups["fraction"])):
-            mats = {}
-            for mo in ("rgb", "ms"):
-                cm = read(ev / "confusion" / (CONF_GROUP.format(model=best, modality=mo, pct=f * 100) + ".csv"))
-                if cm is not None:
-                    # The CSV has the class names as first column (index); keep only the [10, 10] numbers.
-                    mats[f"{fig.MODEL_LABEL[best]}, {fig.MODALITY_LABEL[mo]}"] = cm.set_index(cm.columns[0]).to_numpy()
-            keep(fig.confusion_grid(mats, fd / f"confusion_{f * 100:g}pct.png",
-                                    f"Confusion matrices (rows sum to 100), {fig.FRACTION_LABEL.get(round(f, 4))} labels, "
-                                    "mean of 3 seeds"), f"confusion matrices at {f:.0%}")
-
-    # ---- tables ----------------------------------------------------------------------------------
-    sup = tab.supervised_table(groups)
-    if sup is not None:
-        keep(tab.write_table(sup, td, "supervised_f1", "Test macro-F1 (\\%), mean $\\pm$ std over 3 seeds."), "supervised F1")
-    sup_acc = tab.supervised_table(groups, metric="acc")
-    if sup_acc is not None:
-        keep(tab.write_table(sup_acc, td, "supervised_acc", "Test accuracy (\\%), mean $\\pm$ std over 3 seeds."),
-             "supervised accuracy")
-    # Summarised (over seeds) teacher-vs-student tables, not the per-seed _pairs files used by the figure.
-    compare = {v: read(ev / f"compare_supervised_vs_{v}.csv") for v in ("pl", "plb")}
-    semi = tab.semi_supervised_table(groups, compare)
-    keep(tab.write_table(semi, td, "semi_supervised", "Pseudo-labelling against the supervised teacher, matched on seed.")
-         if semi is not None else None, "semi-supervised table")
-    if best and per_class is not None:
-        pc = tab.per_class_table(per_class, best, args.fraction)
-        keep(tab.write_table(pc, td, "per_class_f1", f"Per-class test F1 (\\%) for {fig.MODEL_LABEL[best]}.")
-             if pc is not None else None, "per-class table")
 
     print(f"wrote {len(made)} files:")
     for m in made:
