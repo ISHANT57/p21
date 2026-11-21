@@ -1,7 +1,7 @@
 # Project status (P21)
 
 **Last updated:** 2026-11-21
-**Current phase:** GPU runs are almost finished (see the run tracker). Next: merge the three lane folders, run `collect_results.py`, `evaluate.py` and `make_figures.py`, commit the summaries, tag `results-v1`, then write the report's Results and Discussion sections.
+**Current phase:** Runs are final (no more training). The final tables and figures are built from the Colab logs (`results/`), and the report text is written. What is left: author names and course details in `report/main.tex`, compile the report on Overleaf, check the page limit, final README results.
 
 The plan and its task lists are in [phases.md](phases.md). Update this file whenever a phase task finishes or a decision is made.
 
@@ -23,14 +23,21 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 
 | Grid | Planned | Done |
 |---|---|---|
-| Supervised, RGB | 27 | 0 |
-| Supervised, 13-band | 27 | 0 |
-| Pseudo-labelling | 24 | 0 |
-| Pseudo-labelling, class-balanced | 6 | 0 |
+| Supervised, RGB | 27 planned (21 run: 3 seeds at 1% and 10%, 1 seed at 100%) | 21 |
+| Supervised, 13-band | 27 planned (21 run) | 21 |
+| Pseudo-labelling | 24 planned | 9 (8 ResNet-50, seeds 0 and 1; 1 scratch CNN, RGB, 1%, seed 0) |
+| Pseudo-labelling, class-balanced | 6 | 0 (not run) |
 | *(optional)* ViT from scratch | 18 | 0 |
 | *(optional)* Band ablation | n/a | 0 |
 
 ## Change log
+
+### 2026-11-21: Runs are final; results built from the Colab logs; report text written
+- No more training. Lanes A and C kept only their notebooks, so there are no prediction files for them. `scripts/parse_colab_logs.py` reads each finished run's printed result line (51 runs) and `scripts/eval_from_logs.py` writes `groups.csv` and the `compare_*` files in the `evaluate.py` layout. The 13 runs with a folder (lane B) match their `metrics.json` to the 4 printed decimals. Method and limits: `docs/EVALUATION.md`, "Results taken from logs".
+- What is missing because of this: bootstrap intervals (except ViT-Small RGB vs 13 bands), ECE, and per-class scores / confusion matrices other than ViT-Small at 1% and 10% labels and ResNet-50 on 13 bands at 100%. Students that had not finished are not counted (9 of 24 exist).
+- Headline numbers (test macro-F1): at 1% labels ResNet-50 88.5 / 89.4 (RGB / 13 bands), ViT-Small 90.7 / 91.2, scratch CNN 74.6 / 78.1; at 100% all 97.5 to 99.1. 13 bands add 3.5 to 4.2 points for the scratch CNN, about 0.9 for ResNet-50 and 0.5 or less for ViT-Small. ResNet-50 students beat their teachers by 2.3 to 2.4 points at 1% and 0.2 at 10%.
+- Report: abstract, setup, results, error analysis, discussion and conclusion written from these numbers. Open: authors and course line.
+- Table cells with one seed print `x (n=1)` instead of `x ± 0.0`. The label-efficiency figure drops direct labels when line ends are too close to label; the legend names every line.
 
 ### 2026-11-21: GPU runs mostly finished; pipeline rehearsed on real runs
 - Lane A (ResNet-50 at 1% and 10%, 12 students) and lane B (ViT-Small at 1% and 10%, ResNet-50 13-band at 100%) have finished. Lane C (scratch CNN, the four remaining 100% runs, scratch CNN students) was still running; its 100% runs are done.
