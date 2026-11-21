@@ -33,6 +33,7 @@ Design decisions:
 """
 
 import argparse
+import time
 from pathlib import Path
 
 import numpy as np
@@ -93,6 +94,7 @@ def main() -> None:
     out = args.out
     (out / "confusion").mkdir(parents=True, exist_ok=True)
     n_pairs = {stem: count_pairs(runs, factor, a, b) for stem, factor, a, b in COMPARISONS}
+    # Announce the amount of work before the slow part, so a long run does not look frozen.
     print(f"{len(runs)} runs found; {sum(n_pairs.values())} comparison pairs in "
           f"{sum(n > 0 for n in n_pairs.values())} comparison files, {args.n_boot} bootstrap resamples each")
 
@@ -140,13 +142,15 @@ def main() -> None:
 
     # ---- paired comparisons ---------------------------------------------------------------------
     for stem, factor, a, b in COMPARISONS:
+        t0 = time.perf_counter()  # per-file timing: the bootstrap inside compare() is the slow step
         pairs = compare(runs, factor, a, b, args.n_boot)
         if pairs.empty:  # nothing to pair yet (one side has no runs)
             continue
         pairs.to_csv(out / f"compare_{stem}_pairs.csv", index=False)
         summ = summarise_comparison(pairs)
         summ.to_csv(out / f"compare_{stem}.csv", index=False)
-        print(f"\n{stem}: macro-F1({b}) - macro-F1({a}), paired by seed")
+        print(f"\ncompare_{stem}: {len(pairs)} pairs, {time.perf_counter() - t0:.1f} s")
+        print(f"{stem}: macro-F1({b}) - macro-F1({a}), paired by seed")
         cols = [c for c in GROUP if c != factor and c in summ.columns]  # the compared factor is a/b, not a key
         print(summ[cols + ["n_seeds", "delta_f1_mean", "delta_f1_std", "seeds_b_better", "seeds_ci_excludes_0"]]
               .to_string(index=False, float_format="%.4f"))
