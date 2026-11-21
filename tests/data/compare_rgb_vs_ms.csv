@@ -1,0 +1,2 @@
+model,fraction,variant,a,b,n_seeds,f1_a,f1_b,delta_f1_mean,delta_f1_std,delta_f1_min,delta_f1_max,seeds_b_better,seeds_ci_excludes_0
+resnet50,0.01,supervised,rgb,ms,2,0.802913048731,0.875104459837,0.0721914111064,0.00156372485869,0.0710856906549,0.0732971315579,2,2
