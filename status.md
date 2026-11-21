@@ -1,7 +1,7 @@
 # Project status (P21)
 
-**Last updated:** 2026-10-30
-**Current phase:** Phase 6 code done. All code that does not need a GPU is in place. Waiting on GPU runs: the baseline, tuning, the 54-run grid, and 30 pseudo-label students. Phase 7 figure/table code and the report skeleton are in place; they need the real results to produce the final figures.
+**Last updated:** 2026-11-21
+**Current phase:** GPU runs are almost finished (see the run tracker). Next: merge the three lane folders, run `collect_results.py`, `evaluate.py` and `make_figures.py`, commit the summaries, tag `results-v1`, then write the report's Results and Discussion sections.
 
 The plan and its task lists are in [phases.md](phases.md). Update this file whenever a phase task finishes or a decision is made.
 
@@ -31,6 +31,13 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 | *(optional)* Band ablation | n/a | 0 |
 
 ## Change log
+
+### 2026-11-21: GPU runs mostly finished; pipeline rehearsed on real runs
+- Lane A (ResNet-50 at 1% and 10%, 12 students) and lane B (ViT-Small at 1% and 10%, ResNet-50 13-band at 100%) have finished. Lane C (scratch CNN, the four remaining 100% runs, scratch CNN students) was still running; its 100% runs are done.
+- Cuts for time (state them in the report): 100% cells use one seed; no learning-rate sweep for ViT-Small (its default `lr` is used); pseudo-labelling only for ResNet-50 and the scratch CNN at 1% and 10%; ViT-Small has no students; the optional runs were not run, and the class-balanced variant is not in any lane (confirm in the final run list before writing the report); students train for 10 epochs (ResNet-50) or the scratch default (scratch CNN).
+- Rehearsal of `collect_results.py`, `evaluate.py` and `make_figures.py` on lane B's 13 runs worked end to end, and the evaluate cross-check against the logged metrics passed. It showed that the direct labels of the label-efficiency figure would be pushed above the axes on real scores; fixed in PR #17.
+- Teammate PRs #11 to #16 merged (evaluation speed-ups and progress messages, `docs/FIGURES.md`, a helper for metric column names, a table-driven `make_figures.py`, three edge-case tests). Issues #1 to #8 closed.
+- Added `LICENSE` (MIT) and completed the author lists in `report/references.bib`.
 
 ### 2026-11-21: Baseline reproduced on Colab
 - ResNet-50, RGB, 100% labels, seed 0, Tesla T4: **test accuracy 0.9867, macro-F1 0.9863**, validation accuracy 0.9889, best epoch 29 of 30, 43.1 min. Target was ≥ 97%; the EuroSAT paper reports about 98.6%.
