@@ -116,17 +116,18 @@ def label_efficiency(groups: pd.DataFrame, path: Path, metric: str = "f1") -> Pa
     mods_in = [m for m in ("rgb", "ms") if m in set(g["modality"])]
     fig, axes = plt.subplots(1, len(mods_in), figsize=(3.4 * len(mods_in) + 1.4, 3.1), sharey=True, squeeze=False)
     name = "macro-F1" if metric == "f1" else "accuracy"
+    mean_col, std_col = metric_columns(metric)
     for ax, mod in zip(axes[0], mods_in):
         ends = []
         for m in mods:
             d = g[(g["model"] == m) & (g["modality"] == mod)].sort_values("fraction")
             if d.empty:
                 continue
-            ax.errorbar(d["fraction"], d[f"test_{'f1' if metric == 'f1' else 'acc'}_mean"],
-                        yerr=d[f"test_{'f1' if metric == 'f1' else 'acc'}_std"].fillna(0),
+            ax.errorbar(d["fraction"], d[mean_col],
+                        yerr=d[std_col].fillna(0),
                         color=MODEL_COLOR[m], marker=MODEL_MARKER[m], capsize=2.5, elinewidth=1.2,
                         markeredgecolor=viz.SURFACE, markeredgewidth=1.2, label=MODEL_LABEL[m])
-            ends.append((m, d["fraction"].iloc[-1], d[f"test_{'f1' if metric == 'f1' else 'acc'}_mean"].iloc[-1]))
+            ends.append((m, d["fraction"].iloc[-1], d[mean_col].iloc[-1]))
         _frac_ticks(ax, g["fraction"])
         # Widen the right edge so the direct labels written after the last point fit inside the axes.
         ax.set_xlim(ax.get_xlim()[0], ax.get_xlim()[1] * 2.4)
