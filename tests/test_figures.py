@@ -195,3 +195,14 @@ def test_empty_groups_return_none(tmp_path):
     pl_only = _groups().assign(variant="pl")  # rows exist, but none are supervised
     assert figures.label_efficiency(pl_only, tmp_path / "d.png") is None
     assert not list(tmp_path.iterdir())
+
+
+def test_wide_table_spans_both_columns(tmp_path):
+    # The pseudo-label table has 8 columns and would run off one column of a two-column page, so
+    # write_table(wide=True) must produce a table* float; the default stays a one-column table.
+    df = pd.DataFrame({"a": ["1"], "b": ["2"]})
+    tables.write_table(df, tmp_path, "narrow", "c")
+    tables.write_table(df, tmp_path, "wide", "c", wide=True)
+    assert (tmp_path / "narrow.tex").read_text().startswith(r"\begin{table}[t]")
+    wide = (tmp_path / "wide.tex").read_text()
+    assert wide.startswith(r"\begin{table*}[t]") and wide.rstrip().endswith(r"\end{table*}")
