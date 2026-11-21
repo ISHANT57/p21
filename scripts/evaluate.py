@@ -37,16 +37,22 @@ Design decisions:
   The messages never change the CSV or PNG outputs.
 """
 
+# argparse reads the options; time measures how long each step takes; Path represents folder paths.
 import argparse
 import time
 from pathlib import Path
 
+# numpy for array operations; pandas for the result tables.
 import numpy as np
 import pandas as pd
 
+# CLASSES = the class names; RESULTS_DIR = the top-level results folder.
 from eurosat_le.constants import CLASSES, RESULTS_DIR
+# Evaluation helpers: load runs and predictions, recompute metrics, compare with the logged values, average
+# confusion matrices, do paired comparisons and summarise them, and list the most frequent mistakes.
 from eurosat_le.eval.evaluate import (check_against_logged, compare, load_preds, load_runs, mean_confusion,
                                       run_metrics, summarise_comparison, top_confusions)
+# RUNS_DIR is the default folder holding one sub-folder per run.
 from eurosat_le.train.engine import RUNS_DIR
 
 # Keys that define one "setting"; the 3 seeds of a setting are aggregated together. "variant" is "supervised"
@@ -69,6 +75,7 @@ def group_name(row) -> str:
     `row` needs the GROUP keys. The fraction is written as a percentage with `:g`, so 0.01 -> "1pct" and
     1.0 -> "100pct". scripts/make_figures.py rebuilds these names (CONF_GROUP), so keep both in sync.
     """
+    # Join model, input type, label percentage and variant into one name (fraction * 100 turns 0.01 into 1).
     return f"{row['model']}_{row['modality']}_{row['fraction'] * 100:g}pct_{row['variant']}"
 
 
@@ -86,40 +93,58 @@ def count_pairs(runs: pd.DataFrame, factor: str, a, b) -> int:
 
 def main() -> None:
     """Run the whole Phase 6 evaluation: per-run metrics, group tables, confusions, paired comparisons."""
+    # Build the argument parser; the module docstring doubles as the --help text.
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    # Folder with the run sub-folders to evaluate.
     p.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
+    # Folder the tables are written into.
     p.add_argument("--out", type=Path, default=RESULTS_DIR / "summary" / "eval")
+    # Number of bootstrap resamples used for the confidence intervals of the paired comparisons.
     p.add_argument("--n-boot", type=int, default=1000)
+    # Names of runs for which a picture of misclassified test images should be drawn.
     p.add_argument("--examples", nargs="*", default=[], metavar="RUN", help="plot misclassified test images")
+    # Flag: suppress progress and timing messages.
     p.add_argument("--quiet", action="store_true",
                    help="no progress/timing messages (results and warnings are still printed)")
+    # Parse sys.argv into the args object.
     args = p.parse_args()
     t_start = time.perf_counter()  # wall time of the whole evaluation, reported with the final "wrote" line
     # Progress and timing messages go through `progress`, so --quiet silences them and nothing else.
     progress = (lambda *_: None) if args.quiet else print
 
+    # Table of all finished runs that have saved test predictions.
     runs = load_runs(args.runs_dir)
+    # Without such runs there is nothing to evaluate.
     if runs.empty:
         raise SystemExit(f"no finished runs with test predictions in {args.runs_dir}")
     out = args.out
+    # Create the output folder and its confusion/ sub-folder before writing into them.
     (out / "confusion").mkdir(parents=True, exist_ok=True)
+    # For each comparison, how many matched run pairs exist (used for the progress message below).
     n_pairs = {stem: count_pairs(runs, factor, a, b) for stem, factor, a, b in COMPARISONS}
     # Announce the amount of work before the slow part, so a long run does not look frozen.
     progress(f"{len(runs)} runs found; {sum(n_pairs.values())} comparison pairs in "
              f"{sum(n > 0 for n in n_pairs.values())} comparison files, {args.n_boot} bootstrap resamples each")
 
     # ---- per run ------------------------------------------------------------------------------
+    # rows: one summary row per run; class_rows: one row per run and class; issues: mismatch warnings.
     rows, class_rows, issues = [], [], []
     for _, r in runs.iterrows():
+        # Recompute accuracy, macro-F1, ECE and per-class scores from this run's saved predictions.
         met = run_metrics(r["dir"])
+        # Compare them with the numbers logged during training; collect a message for every mismatch.
         issues += check_against_logged(r["dir"], met)
+        # One row for this run: its identifying fields plus val/test accuracy, macro-F1 and ECE.
         rows.append({**{k: r[k] for k in ["run_name", *GROUP, "seed"]},
                      **{f"{s}_{k}": met[s][k] for s in ("val", "test") for k in ("accuracy", "macro_f1", "ece")}})
+        # One row per class for this run: identifying fields, the class name and its precision/recall/F1 on test.
         for c in CLASSES:
             class_rows.append({**{k: r[k] for k in [*GROUP, "seed"]}, "class": c, **met["test"]["per_class"][c]})
+    # Save the per-run table.
     per_run = pd.DataFrame(rows)
     per_run.to_csv(out / "per_run.csv", index=False)
     print(f"{len(per_run)} runs evaluated")
+    # Warn (but carry on) if any recomputed number differs from the logged one.
     if issues:
         print("WARNING: recomputed metrics differ from metrics.json:\n  " + "\n  ".join(issues))
 
@@ -141,11 +166,16 @@ def main() -> None:
     per_class.to_csv(out / "per_class.csv", index=False)
 
     # ---- confusion matrices ---------------------------------------------------------------------
+    # Rows for the "most frequent mistakes" table, collected over all groups.
     conf_rows = []
     for key, g in runs.groupby(GROUP):  # key is a tuple in GROUP order (GROUP is a list of 4 columns)
+        # Turn the group key tuple into a dict {model:..., modality:..., fraction:..., variant:...}.
         row = dict(zip(GROUP, key))
+        # Average the (row-normalised) test confusion matrix over the seeds of this group.
         cm = mean_confusion(list(g["dir"]))
+        # Save it as a labelled CSV, one file per group.
         pd.DataFrame(cm, index=CLASSES, columns=CLASSES).to_csv(out / "confusion" / f"{group_name(row)}.csv")
+        # Record this group's most frequent mistakes (true class, predicted class, how often).
         for true, pred, rate in top_confusions(cm):
             conf_rows.append({**row, "true": true, "predicted": pred, "rate": rate})
     pd.DataFrame(conf_rows).to_csv(out / "top_confusions.csv", index=False)
@@ -153,19 +183,24 @@ def main() -> None:
     # ---- paired comparisons ---------------------------------------------------------------------
     for stem, factor, a, b in COMPARISONS:
         t0 = time.perf_counter()  # per-file timing: the bootstrap inside compare() is the slow step
+        # Match runs that differ only in `factor` (a vs b) and compute the F1 difference with a bootstrap interval.
         pairs = compare(runs, factor, a, b, args.n_boot)
         if pairs.empty:  # nothing to pair yet (one side has no runs)
             continue
+        # Save the per-seed pairs, then the summary over seeds.
         pairs.to_csv(out / f"compare_{stem}_pairs.csv", index=False)
         summ = summarise_comparison(pairs)
         summ.to_csv(out / f"compare_{stem}.csv", index=False)
         # The timing line takes the blank separator line; with --quiet the table header keeps it instead.
         progress(f"\ncompare_{stem}: {len(pairs)} pairs, {time.perf_counter() - t0:.1f} s")
         print(("\n" if args.quiet else "") + f"{stem}: macro-F1({b}) - macro-F1({a}), paired by seed")
+        # Columns that identify the setting; the compared factor is left out because it is what differs (a vs b).
         cols = [c for c in GROUP if c != factor and c in summ.columns]  # the compared factor is a/b, not a key
+        # Print the summary table: setting, number of seeds, mean/std of the F1 difference and per-seed counts.
         print(summ[cols + ["n_seeds", "delta_f1_mean", "delta_f1_std", "seeds_b_better", "seeds_ci_excludes_0"]]
               .to_string(index=False, float_format="%.4f"))
 
+    # Draw the misclassified-images figure for every run name given with --examples.
     for name in args.examples:
         plot_errors(args.runs_dir / name, out / f"errors_{name}.png")
     # The "wrote" line is always printed (as before); only the timing part is a progress message.
@@ -185,35 +220,47 @@ def plot_errors(run_dir: Path, path: Path, n: int = 24, seed: int = 0) -> None:
     Images come from the RGB cache for every run: the cache rows follow splits/split.csv, so an image is
     found through its position in that table.
     """
+    # These imports are done here so the rest of the script works without matplotlib until a plot is drawn.
     import matplotlib.pyplot as plt
 
+    # Project plot style, the packed RGB image cache, the split table and the softmax function.
     from eurosat_le import viz
     from eurosat_le.data.cache import load_cache
     from eurosat_le.data.splits import load_split
     from eurosat_le.ssl.pseudo_label import softmax
 
     viz.apply_style()
+    # Saved test predictions: raw class scores (logits), true labels and sample ids (sorted by id).
     logits, y, ids = load_preds(run_dir)
+    # Convert the scores to probabilities, so the confidence of each prediction can be shown.
     probs = softmax(logits)
     wrong = np.flatnonzero(probs.argmax(1) != y)  # indices into the id-sorted test arrays
+    # Randomly choose up to n of the mistakes (a fixed seed makes the choice repeatable).
     pick = np.random.default_rng(seed).choice(wrong, min(n, len(wrong)), replace=False)
+    # All RGB images packed into one array (memory-mapped, so it does not fill the RAM).
     rgb = load_cache("rgb")
     row_of = {sid: i for i, sid in enumerate(load_split()["id"])}  # sample id -> row in split.csv == row in the cache
+    # 6 images per row; compute how many rows are needed for the chosen images.
     cols = 6
     rows = int(np.ceil(len(pick) / cols))
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.0, rows * 2.3), squeeze=False)
+    # Switch every cell off first, so unused cells in the last row stay empty.
     for ax in axes.flat:
         ax.axis("off")
+    # Fill one cell per chosen mistake.
     for ax, i in zip(axes.flat, pick):
         img = rgb[row_of[ids[i]]].transpose(1, 2, 0)  # cache is (C, H, W); imshow wants (H, W, C)
         ax.imshow(img)
+        # Title: true class, predicted class and the model's confidence in its (wrong) prediction.
         ax.set_title(f"{CLASSES[y[i]]}\n→ {CLASSES[probs[i].argmax()]}\n({probs[i].max():.2f})", fontsize=6.5,
                      fontweight="normal", color=viz.TEXT_PRIMARY)
     fig.suptitle(f"{run_dir.name}: misclassified test images (true → predicted, confidence)", fontsize=9)
     fig.subplots_adjust(wspace=0.15, hspace=0.6)  # hspace leaves room for the three-line titles
+    # Save the figure and free its memory.
     fig.savefig(path)
     plt.close(fig)
 
 
+# Run main() only when the file is executed as a script, not when it is imported.
 if __name__ == "__main__":
     main()

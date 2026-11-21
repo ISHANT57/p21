@@ -11,15 +11,19 @@ Refreshing the expected files ON PURPOSE (only when a result is meant to change,
 then review `git diff tests/data/` and commit the new files.
 """
 
+# os: read the UPDATE_EXPECTED switch; subprocess/sys: run the evaluate script as its own process.
 import os
 import subprocess
 import sys
+# Path: locate the folder with the saved expected tables.
 from pathlib import Path
 
+# pandas: read the CSV tables and compare them; pytest: fixtures and parametrisation.
 import pandas as pd
 import pytest
 from test_evaluate import make_run  # reuse the fake-run builder, so both test files make runs the same way
 
+# REPO_ROOT: to find scripts/evaluate.py.
 from eurosat_le.constants import REPO_ROOT
 
 DATA = Path(__file__).parent / "data"  # expected tables, committed with the test
@@ -27,9 +31,11 @@ FILES = ["groups.csv", "compare_rgb_vs_ms.csv"]  # main results table + one pair
 N_BOOT = 50  # few resamples keep the test fast; the bootstrap seed is fixed, so the interval is reproducible
 
 
+# scope="module": the script runs once and all tests in this file reuse its output.
 @pytest.fixture(scope="module")
 def eval_out(tmp_path_factory):
     """Run scripts/evaluate.py once on fake runs and return its output folder (shared by all tests here)."""
+    # A temporary working folder that lives as long as the module-scoped fixture.
     root = tmp_path_factory.mktemp("regression")
     runs = root / "runs"
     # Two seeds per setting, so groups.csv has a std and the RGB-vs-13-band comparison has 2 pairs.
@@ -45,15 +51,20 @@ def eval_out(tmp_path_factory):
     return out
 
 
+# One test case per table name in FILES.
 @pytest.mark.parametrize("name", FILES)
 def test_evaluation_tables_unchanged(eval_out, name):
     """The new table must equal the saved one (floats within 1e-9, everything else exactly)."""
+    # The table the script just produced.
     new = pd.read_csv(eval_out / name)
+    # Only when the developer asks for it (UPDATE_EXPECTED=1) the saved file is overwritten, never by default.
     if os.environ.get("UPDATE_EXPECTED"):
         # Refresh mode: overwrite the expected file with the current output (12 significant digits is
         # far below the 1e-9 tolerance, and keeps the files small and readable in a diff).
         DATA.mkdir(exist_ok=True)
         new.to_csv(DATA / name, index=False, float_format="%.12g")
+    # The previously saved ("golden") table that the new one is compared with.
     expected = pd.read_csv(DATA / name)
     # rtol=0 + atol=1e-9: an absolute tolerance only, so small and large values are held to the same bar.
+    # The test fails if any number moved by more than 1e-9, or any text/column/row differs.
     pd.testing.assert_frame_equal(new, expected, check_exact=False, rtol=0, atol=1e-9)
