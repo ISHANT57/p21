@@ -164,7 +164,7 @@ def to_markdown(df: pd.DataFrame) -> str:
     return "\n".join([head, sep, *body]) + "\n"
 
 
-def to_latex(df: pd.DataFrame, caption: str, label: str, wide: bool = False) -> str:
+def to_latex(df: pd.DataFrame, caption: str, label: str, wide: bool = False, font: str = r"\small") -> str:
     """Render a display DataFrame as a booktabs `table` float (string ends with a newline).
 
     With `wide=True` the float is a `table*`, which spans both columns of a two-column page; use it for
@@ -190,14 +190,15 @@ def to_latex(df: pd.DataFrame, caption: str, label: str, wide: bool = False) -> 
     cols = "l" + "c" * (len(d.columns) - 1)
     env = "table*" if wide else "table"
     lines = [rf"\begin{{{env}}}[t]", r"\centering", rf"\caption{{{caption}}}", rf"\label{{{label}}}",
-             r"\small", rf"\begin{{tabular}}{{{cols}}}", r"\toprule",
+             font, rf"\begin{{tabular}}{{{cols}}}", r"\toprule",
              " & ".join(esc(c) for c in d.columns) + r" \\", r"\midrule"]
     lines += [" & ".join(esc(v) for v in row) + r" \\" for row in d.itertuples(index=False)]
     lines += [r"\bottomrule", r"\end{tabular}", rf"\end{{{env}}}"]
     return "\n".join(lines) + "\n"
 
 
-def write_table(df: pd.DataFrame, out_dir: Path, name: str, caption: str, wide: bool = False) -> list[Path]:
+def write_table(df: pd.DataFrame, out_dir: Path, name: str, caption: str, wide: bool = False,
+                font: str = r"\small") -> list[Path]:
     """Write `df` to <out_dir>/<name>.md and <name>.tex (creating out_dir) and return both paths.
 
     The LaTeX label is "tab:<name>". The caption is used in the .tex file only. `wide` makes the LaTeX
@@ -206,5 +207,5 @@ def write_table(df: pd.DataFrame, out_dir: Path, name: str, caption: str, wide: 
     out_dir.mkdir(parents=True, exist_ok=True)
     md, tex = out_dir / f"{name}.md", out_dir / f"{name}.tex"
     md.write_text(to_markdown(df), encoding="utf-8")
-    tex.write_text(to_latex(df, caption, f"tab:{name}", wide), encoding="utf-8")
+    tex.write_text(to_latex(df, caption, f"tab:{name}", wide, font), encoding="utf-8")
     return [md, tex]

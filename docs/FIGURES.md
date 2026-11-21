@@ -22,7 +22,7 @@ Each table is written as `<name>.md` and `<name>.tex` in `results/tables/`.
 | `supervised_f1` | `groups.csv` (supervised rows) | `model`, `modality`, `fraction`, `test_f1_mean`, `test_f1_std` | Test macro-F1 (%) as mean ± std over seeds; rows are model and input, columns are label fractions; the best value per column is bold. |
 | `supervised_acc` | `groups.csv` (supervised rows) | `model`, `modality`, `fraction`, `test_acc_mean`, `test_acc_std` | The same table for test accuracy. |
 | `semi_supervised` | `compare_supervised_vs_pl.csv`, `compare_supervised_vs_plb.csv` | `model`, `modality`, `fraction`, `f1_a`, `f1_b`, `delta_f1_mean`, `delta_f1_std`, `seeds_b_better`, `n_seeds` | Supervised teacher F1, student F1, the change in points (mean ± std) and the number of seeds where the student was better, for each model, input and fraction. |
-| `per_class_f1` | `per_class.csv` (supervised rows) | `class`, `f1_mean`, `f1_std` | Test F1 (%) per class, RGB and 13 bands, for the best model at `--fraction`. |
+| `per_class_f1_<pct>pct` | `per_class.csv` (supervised rows) | `class`, `f1_mean`, `f1_std` | Test F1 (%) per class, RGB and 13 bands, for the best model at `--fraction`. |
 
 ## Colour rules
 

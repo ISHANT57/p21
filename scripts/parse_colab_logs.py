@@ -86,6 +86,24 @@ def parse(path: Path) -> tuple[list[dict], list[str]]:
     return list(rows.values()), evidence
 
 
+TUNE = re.compile(r"^\[(?P<name>(?P<model>scratch_cnn|resnet50|vit_small)_(?P<modality>rgb|ms)_(?P<pct>\d+)pct_seed(?P<seed>\d+)"
+                  r"_tune_lr(?P<lr>[\d.e+-]+))\] best epoch (?P<best_epoch>\d+): val acc (?P<val_acc>[\d.]+) "
+                  r"f1 (?P<val_f1>[\d.]+) \| (?P<minutes>[\d.]+) min")
+
+
+def parse_tuning(path: Path) -> list[dict]:
+    """Finished learning-rate sweep runs of one notebook (validation numbers only; the test set is not used)."""
+    rows: dict[str, dict] = {}
+    for line in notebook_text(path).splitlines():
+        m = TUNE.match(line.strip())
+        if m:
+            rows[m["name"]] = dict(run_name=m["name"], model=m["model"], modality=m["modality"],
+                                   fraction=int(m["pct"]) / 100, seed=int(m["seed"]), lr=float(m["lr"]),
+                                   val_acc=float(m["val_acc"]), val_f1=float(m["val_f1"]),
+                                   best_epoch=int(m["best_epoch"]), minutes=float(m["minutes"]), source=path.name)
+    return list(rows.values())
+
+
 def main() -> None:
     """Parse the given notebooks in order and write runs_from_logs.csv and one evidence file per notebook."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -109,6 +127,11 @@ def main() -> None:
     df.to_csv(args.out / "runs_from_logs.csv", index=False)
     print(f"{len(df)} runs -> {args.out / 'runs_from_logs.csv'}")
     print(df.groupby(["variant", "model"]).size().to_string())
+    tune = {r["run_name"]: r for nb in args.notebooks for r in parse_tuning(nb)}
+    if tune:
+        t = pd.DataFrame(tune.values()).sort_values(["model", "lr"])
+        t.to_csv(args.out / "tuning_from_logs.csv", index=False)
+        print(f"{len(t)} learning-rate sweep runs -> {args.out / 'tuning_from_logs.csv'}")
 
 
 if __name__ == "__main__":

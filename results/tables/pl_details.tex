@@ -1,0 +1,21 @@
+\begin{table*}[t]
+\centering
+\caption{Pseudo-label students: the threshold $\tau$ chosen on the validation set, the validation precision at $\tau$, the number of pool images that received a pseudo-label, and the test macro-F1 change against the teacher of the same seed.}
+\label{tab:pl_details}
+\small
+\begin{tabular}{lcccccccccc}
+\toprule
+Model & Input & Labels & Seed & $\tau$ & Val. precision & Pseudo-labelled & Share (\%) & Teacher F1 & Student F1 & $\Delta$ \\
+\midrule
+Scratch CNN & RGB (3 bands) & 1\% & 0 & 0.99 & 0.893 & 12,054 / 18,708 & 64.4 & 74.9 & 76.8 & +1.8 \\
+ResNet-50 & RGB (3 bands) & 1\% & 0 & 0.89 & 0.950 & 15,935 / 18,708 & 85.2 & 88.5 & 91.0 & +2.4 \\
+ResNet-50 & RGB (3 bands) & 1\% & 1 & 0.90 & 0.951 & 16,382 / 18,708 & 87.6 & 88.4 & 90.9 & +2.4 \\
+ResNet-50 & RGB (3 bands) & 10\% & 0 & 0.50 & 0.969 & 16,952 / 17,009 & 99.7 & 96.3 & 96.5 & +0.2 \\
+ResNet-50 & RGB (3 bands) & 10\% & 1 & 0.50 & 0.971 & 16,964 / 17,009 & 99.7 & 96.8 & 96.9 & +0.1 \\
+ResNet-50 & 13 bands & 1\% & 0 & 0.87 & 0.950 & 17,109 / 18,708 & 91.5 & 89.9 & 92.0 & +2.2 \\
+ResNet-50 & 13 bands & 1\% & 1 & 0.94 & 0.952 & 16,635 / 18,708 & 88.9 & 89.6 & 92.0 & +2.4 \\
+ResNet-50 & 13 bands & 10\% & 0 & 0.50 & 0.979 & 16,964 / 17,009 & 99.7 & 97.2 & 97.5 & +0.3 \\
+ResNet-50 & 13 bands & 10\% & 1 & 0.50 & 0.982 & 16,980 / 17,009 & 99.8 & 97.7 & 97.9 & +0.2 \\
+\bottomrule
+\end{tabular}
+\end{table*}
