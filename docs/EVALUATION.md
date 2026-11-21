@@ -40,3 +40,19 @@ With only 3 seeds, the report states, for example, "13-band better in 3/3 seeds,
 ## Progress messages
 
 The script prints how many runs and comparison pairs it will process before the slow part (the paired bootstrap), then one line per comparison file with its pair count and time (for example `compare_rgb_vs_ms: 27 pairs, 12.3 s`), and the total time next to the final `wrote ...` line. Pass `--quiet` to turn these messages off; the result tables and any metric warnings are still printed. The messages do not change any output file.
+
+## Results taken from logs (final results of this project)
+
+Only the run folders of one lane (ViT-Small at 1% and 10%, and ResNet-50 on 13 bands at 100%; 13 runs) were kept. For the other two lanes only the Colab notebooks, with their printed training logs, were kept, so their predictions do not exist and the full evaluation above cannot be run on them. The final tables and figures are therefore built from the numbers each run printed when it finished:
+
+1. `python scripts/parse_colab_logs.py <notebooks...>` reads the result line of every finished run (`best epoch ... | test acc ... f1 ...`) and, for students, the teacher, threshold and pseudo-label count. It writes `results/logs/runs_from_logs.csv` and, for each notebook, the lines it used (`results/logs/<notebook>.txt`).
+2. `python scripts/eval_from_logs.py --runs-dir results/runs` writes `groups.csv` and the `compare_*` files in the same layout as `evaluate.py`. It cross-checks the 13 runs that have a folder against their `metrics.json`: all agree to the four printed decimals.
+3. `python scripts/evaluate.py --out results/summary/eval_laneB` evaluates those 13 runs fully. Their `per_class.csv` and `confusion/` are copied into `results/summary/eval/`, so `make_figures.py --fraction 0.01` can draw the per-class heatmap and confusion matrices of ViT-Small at 1% labels.
+
+What differs from a full evaluation, and has to be said wherever these numbers are used:
+
+- **No bootstrap intervals.** A paired comparison is the per-seed difference of two logged macro-F1 values, and `seeds_ci_excludes_0` is empty. Only the ViT-Small RGB versus 13-band comparison has intervals (`results/summary/eval_laneB/`).
+- **No calibration (ECE)** and numbers with four decimals, as printed.
+- **Per-class scores and confusion matrices exist only for the 13 runs with predictions** (ViT-Small at 1% and 10%, ResNet-50 on 13 bands at 100%).
+- **Single-seed cells** (the 100% runs, and the scratch CNN student) are shown as `(n=1)`, with no spread.
+- **Incomplete pseudo-labelling.** Students that had not finished when the sessions ended are not counted: 8 ResNet-50 students (seeds 0 and 1) and 1 scratch CNN student (RGB, 1%, seed 0).

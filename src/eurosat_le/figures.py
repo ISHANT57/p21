@@ -141,9 +141,16 @@ def label_efficiency(groups: pd.DataFrame, path: Path, metric: str = "f1") -> Pa
         # figure size), so it works whether the scores span 0.5-1.0 or only 0.97-0.99. Labels are kept
         # inside the axes (top = 2% of the range below the upper edge).
         lo, hi = ax.get_ylim()
-        ys = _spread([e[2] for e in ends], gap=0.065 * (hi - lo), top=hi - 0.02 * (hi - lo))
-        for (m, x, _), y in zip(ends, ys):
-            ax.text(x * 1.12, y, MODEL_LABEL[m], color=viz.TEXT_SECONDARY, fontsize=7.5, va="center")
+        gap = 0.065 * (hi - lo)
+        want = [e[2] for e in ends]
+        ys = _spread(want, gap=gap, top=hi - 0.02 * (hi - lo))
+        # A label that had to move more than half a gap from its own line end would sit next to a
+        # different line and mislead. When the line ends are that crowded (all models near 99% at 100%
+        # labels), write no direct labels in this panel: the legend below names every line, and each
+        # line also has its own marker.
+        if all(abs(y - w) <= 0.5 * gap for y, w in zip(ys, want)):
+            for (m, x, _), y in zip(ends, ys):
+                ax.text(x * 1.12, y, MODEL_LABEL[m], color=viz.TEXT_SECONDARY, fontsize=7.5, va="center")
         ax.set_title(MODALITY_LABEL[mod])
         ax.set_xlabel("labelled training images (share of the 18,899)")
     axes[0][0].set_ylabel(f"test {name} (mean ± std, 3 seeds)")
