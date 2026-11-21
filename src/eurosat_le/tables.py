@@ -26,7 +26,7 @@ from pathlib import Path
 import pandas as pd
 
 from eurosat_le.constants import CLASSES
-from eurosat_le.figures import FRACTION_LABEL, MODEL_LABEL, MODELS, MODALITY_LABEL
+from eurosat_le.figures import FRACTION_LABEL, MODEL_LABEL, MODELS, MODALITY_LABEL, metric_columns
 
 
 def _pm(mean: float, std: float, scale: float = 100.0, digits: int = 1) -> str:
@@ -70,7 +70,7 @@ def supervised_table(groups: pd.DataFrame, metric: str = "f1") -> pd.DataFrame |
     g = groups[groups["variant"] == "supervised"]
     if g.empty:
         return None
-    mean, std = f"test_{metric if metric == 'f1' else 'acc'}_mean", f"test_{metric if metric == 'f1' else 'acc'}_std"
+    mean, std = metric_columns(metric)
     fr = sorted(g["fraction"].unique())
     idx = [(m, mo) for m in MODELS for mo in ("rgb", "ms") if ((g["model"] == m) & (g["modality"] == mo)).any()]
     disp = pd.DataFrame(index=[f"{MODEL_LABEL[m]}, {MODALITY_LABEL[mo]}" for m, mo in idx],
