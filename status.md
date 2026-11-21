@@ -35,7 +35,7 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 ### 2026-11-21: Baseline reproduced on Colab
 - ResNet-50, RGB, 100% labels, seed 0, Tesla T4: **test accuracy 0.9867, macro-F1 0.9863**, validation accuracy 0.9889, best epoch 29 of 30, 43.1 min. Target was ≥ 97%; the EuroSAT paper reports about 98.6%.
 - The best epoch was the last one, so early stopping never triggered. A 100% pretrained run takes about 43 min (86 s per epoch of 295 steps, about 0.29 s per step).
-- On the same Colab session: 69 tests passed (62 s) and the GPU smoke test passed 8/8 model × input combinations.
+- On the same Colab session: 69 tests passed (62 s) and the smoke test (it runs on CPU) passed 8/8 model × input combinations.
 - Time plan (deadline 2026-11-22 night): no tuning sweep (default `lr` from the configs); 100% runs with seed 0 only; pseudo-labelling for ResNet-50 at 1% and 10%; optional runs dropped. State these cuts in the report.
 
 ### 2026-11-21: Phase 7 code and report skeleton (branch `feat/report`)

@@ -1,4 +1,21 @@
-"""DataLoader factory shared by every experiment."""
+"""DataLoader factory shared by every experiment.
+
+Pipeline position: the last step of the data pipeline. build_loaders() combines the split files,
+labelled subsets, datasets (eurosat_le.data.datasets) and augmentation (eurosat_le.data.transforms)
+into train/val/test loaders and, optionally, an unlabelled loader for semi-supervised training.
+
+Design decisions:
+    - The data pipeline always yields 64x64 images; resizing to 224 px for the ImageNet models is
+      done on the GPU inside the model. This keeps the 2-core CPUs of Colab/Kaggle from becoming
+      the bottleneck.
+    - Val and test loaders are fixed (all val / all test ids, no augmentation) for every
+      condition, so results are comparable. Only the training set changes with the label fraction.
+    - The labelled set is a nested subset of train picked by (fraction, subset_seed); the
+      unlabelled pool is the rest of train and its labels are never loaded.
+    - To make every run use the same number of optimiser steps regardless of label fraction,
+      `steps_per_epoch` switches the train loader to sampling with replacement with a fixed length.
+    - Shuffling, sampling and worker augmentation are all seeded from DataConfig.seed.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +31,12 @@ from eurosat_le.utils import seed_worker
 
 @dataclass
 class DataConfig:
+    """Everything build_loaders needs; the field comments describe the allowed values.
+
+    `seed` controls shuffling/sampling and augmentation, while `subset_seed` only selects which
+    labelled subset file is used. They are separate fields on purpose.
+    """
+
     modality: str = "rgb"           # "rgb" or "ms"
     fraction: float = 1.0           # labelled fraction of train: 0.01, 0.1, 1.0
     subset_seed: int = 0            # which labelled-subset draw (0, 1, 2)
@@ -32,6 +55,12 @@ class DataConfig:
 
 
 def _loader(ds, batch_size, cfg, shuffle=False, sampler=None, drop_last=False, offset=0):
+    """DataLoader with the project's common settings.
+
+    The loader's own generator is seeded with cfg.seed + offset (it drives shuffling and the per-worker
+    base seed); different loaders use different offsets so they do not share a random stream. A sampler,
+    if given, takes precedence over `shuffle`. Workers are persistent and seeded via seed_worker.
+    """
     g = torch.Generator().manual_seed(cfg.seed + offset)
     return DataLoader(
         ds, batch_size=batch_size, shuffle=shuffle if sampler is None else False, sampler=sampler,
@@ -41,12 +70,23 @@ def _loader(ds, batch_size, cfg, shuffle=False, sampler=None, drop_last=False, o
 
 
 def build_loaders(cfg: DataConfig) -> dict[str, DataLoader]:
-    """Return loaders: train, val, test, and (if cfg.unlabelled and the pool is non-empty) unlabelled."""
+    """Return loaders: train, val, test, and (if cfg.unlabelled and the pool is non-empty) unlabelled.
+
+    - train: labelled subset (plus pseudo-labelled extras if given), with the `cfg.aug` policy.
+    - val / test: all ids of that split, no augmentation, never shuffled.
+    - unlabelled: yields (weak, strong) view pairs with no labels. Its length is tied to the train
+      loader: each epoch draws len(train) batches of unlabelled_ratio * batch_size images, with
+      replacement.
+
+    Pseudo-labelled extras (cfg.extra_ids / extra_labels) must be train ids outside the labelled subset
+    (checked); the labelled subset keeps its TRUE labels and only the extras use the given labels.
+    """
     kw = dict(source=cfg.source, in_memory=cfg.in_memory)
     lab = labelled_ids(cfg.fraction, cfg.subset_seed)
     if cfg.extra_ids:
         if set(cfg.extra_ids) & set(lab):
             raise ValueError("pseudo-labelled ids overlap the labelled subset")
+        # Labelled ids keep their true labels; only the extra ids get the supplied pseudo-labels.
         true = make_dataset(cfg.modality, lab, **kw).labels.tolist()
         train_ds = make_dataset(cfg.modality, lab + list(cfg.extra_ids), labels=true + list(cfg.extra_labels),
                                 transform=build_transform(cfg.aug), **kw)
@@ -56,6 +96,8 @@ def build_loaders(cfg: DataConfig) -> dict[str, DataLoader]:
     test_ds = make_dataset(cfg.modality, split_ids("test"), **kw)
 
     if cfg.steps_per_epoch:
+        # Fixed number of steps per epoch independent of the subset size (1% of train is only ~2 batches);
+        # sampling with replacement lets a tiny labelled set fill the step budget.
         g = torch.Generator().manual_seed(cfg.seed)
         sampler = RandomSampler(train_ds, replacement=True, num_samples=cfg.steps_per_epoch * cfg.batch_size,
                                 generator=g)
@@ -75,6 +117,8 @@ def build_loaders(cfg: DataConfig) -> dict[str, DataLoader]:
             u_ds = make_dataset(cfg.modality, pool, labelled=False,
                                 transform=TwoViews(build_transform("weak"), build_transform("strong")), **kw)
             u_bs = cfg.unlabelled_ratio * cfg.batch_size
+            # Separate seeds (cfg.seed + 1 for the sampler, offset=2 for the loader) keep the unlabelled
+            # stream independent of the labelled one.
             g = torch.Generator().manual_seed(cfg.seed + 1)
             u_sampler = RandomSampler(u_ds, replacement=True, num_samples=len(train) * u_bs, generator=g)
             loaders["unlabelled"] = _loader(u_ds, u_bs, cfg, sampler=u_sampler, offset=2)

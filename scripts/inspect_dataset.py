@@ -10,6 +10,21 @@ Writes:
     results/dataset_inspection/samples_rgb.png   5 random patches per class
     results/dataset_inspection/class_counts.png
     results/dataset_inspection/spectral_signatures.png  per-class band means (z-scored)
+
+Pipeline position: runs once after make_splits.py. Its most important output is
+splits/norm_stats.json, which every dataset uses to standardise pixels (see
+eurosat_le/data/datasets.py).
+
+Design decisions:
+    - Normalisation statistics are computed from the TRAIN split only (split.csv), never from
+      validation or test images. Labels are not used. They do include train images that count as
+      "unlabelled" in the 1% / 10% settings; that is not label leakage (see docs/DATA.md).
+    - RGB statistics are on pixel/255; 13-band statistics are on raw DN (uint16), matching the scale
+      factors in eurosat_le.data.datasets.SCALE. The two must stay consistent.
+    - The 13 MS channels are read in file order, with B8A stored LAST (constants.MS_BANDS). The
+      plot reorders them by wavelength for display only.
+    - It also hashes the decoded pixels of every RGB image to report exact duplicates, including
+      duplicates that fall into different splits (a possible train/test leak).
 """
 
 import hashlib
@@ -28,26 +43,34 @@ OUT = RESULTS_DIR / "dataset_inspection"
 
 
 class RunningStats:
-    """Per-channel mean/std over all pixels, accumulated in float64."""
+    """Per-channel mean/std over all pixels, accumulated in float64.
+
+    Keeps only running sums (count, sum, sum of squares), so the whole dataset never has to be in
+    memory. The result is the population std (divides by the number of pixels), computed as
+    sqrt(E[x^2] - E[x]^2); float64 keeps that subtraction accurate for the uint16 MS values.
+    """
 
     def __init__(self, c):
         self.n, self.s, self.ss = 0, np.zeros(c), np.zeros(c)
 
     def add(self, x):  # x: (H, W, C)
+        """Add one image (H, W, C), any numeric dtype; every pixel counts equally."""
         x = x.reshape(-1, x.shape[-1]).astype(np.float64)
         self.n += len(x)
         self.s += x.sum(0)
         self.ss += (x**2).sum(0)
 
     def result(self):
+        """Return (mean, std), each an array with one value per channel."""
         mean = self.s / self.n
         return mean, np.sqrt(self.ss / self.n - mean**2)
 
 
 def main() -> None:
+    """Inspect the data on disk and write norm_stats.json plus the inspection outputs (see module docstring)."""
     OUT.mkdir(parents=True, exist_ok=True)
     viz.apply_style()
-    check_integrity(SPLITS_DIR)
+    check_integrity(SPLITS_DIR)  # make sure "train" below refers to the committed, unmodified split
     df = load_split(SPLITS_DIR)
     summary = {"n_samples": len(df), "classes": CLASSES}
 
@@ -65,10 +88,12 @@ def main() -> None:
         path = rgb_dir / f"{sid}.jpg"
         img = np.asarray(Image.open(path).convert("RGB"))
         shapes.add((img.shape, str(img.dtype)))
+        # MD5 of the decoded pixels (not the file) is only a duplicate fingerprint, not a security check.
         hashes.setdefault(hashlib.md5(img.tobytes()).hexdigest(), []).append((sid, split))
-        if split == "train":
+        if split == "train":  # leakage guard: statistics use train images only
             rgb_stats.add(img / 255.0)
     dups = [v for v in hashes.values() if len(v) > 1]
+    # Duplicate groups whose members are in more than one split would be train/test leakage.
     cross = [v for v in dups if len({s for _, s in v}) > 1]
     summary["rgb"] = {
         "shapes": sorted(map(str, shapes)),
@@ -88,11 +113,11 @@ def main() -> None:
         class_sum = np.zeros((len(CLASSES), 13))
         class_n = np.zeros(len(CLASSES))
         for sid, split, label in tqdm(zip(df["id"], df["split"], df["label"]), total=len(df), desc="MS"):
-            x = tifffile.imread(ms_dir / f"{sid}.tif")
+            x = tifffile.imread(ms_dir / f"{sid}.tif")  # (64, 64, 13) uint16, channels in file order (B8A last)
             ms_shapes.add((x.shape, str(x.dtype)))
             bmin = np.minimum(bmin, x.reshape(-1, 13).min(0))
             bmax = np.maximum(bmax, x.reshape(-1, 13).max(0))
-            if split == "train":
+            if split == "train":  # leakage guard: statistics and class means use train images only
                 ms_stats.add(x)
                 class_sum[label] += x.reshape(-1, 13).mean(0)
                 class_n[label] += 1
@@ -116,6 +141,7 @@ def main() -> None:
 
 
 def plot_samples(df, rgb_dir, per_class=5, seed=0):
+    """Save a grid of `per_class` randomly chosen RGB patches per class (fixed seed, so the figure is repeatable)."""
     import matplotlib.pyplot as plt
 
     rng = np.random.default_rng(seed)
@@ -135,6 +161,7 @@ def plot_samples(df, rgb_dir, per_class=5, seed=0):
 
 
 def plot_counts(counts):
+    """Save a horizontal bar chart of the total number of images per class (from the class_counts table)."""
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(5.5, 3.2))
@@ -152,7 +179,11 @@ def plot_counts(counts):
 
 
 def plot_spectral(class_means, band_mean, band_std):
-    """Heatmap of per-class mean reflectance, z-scored per band against the train set."""
+    """Heatmap of per-class mean reflectance, z-scored per band against the train set.
+
+    `class_means` is (n_classes, 13) in file order; `band_mean` / `band_std` are the train-split statistics
+    per band, so each cell shows how far a class's mean is from the overall mean, in std units.
+    """
     import matplotlib.pyplot as plt
 
     # Show bands in wavelength order (B8A between B08 and B09), not file order.

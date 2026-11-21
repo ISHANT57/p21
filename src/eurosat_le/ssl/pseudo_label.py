@@ -13,6 +13,25 @@ Steps, all without reading the true labels of the unlabelled pool:
 
 `quality()` compares pseudo-labels with the hidden true labels. It is analysis for
 the report only and is never used to choose tau or anything else.
+
+Where it fits (Phase 5, docs/SSL.md): the teacher is a finished supervised run whose folder holds
+preds_val.npz and preds_unlabelled.npz (written by `eurosat_le.train.engine.run`, from the weights
+selected on validation macro-F1). `eurosat_le.ssl.self_training.train_student` calls
+`make_pseudo_labels` and then trains the student on labelled + pseudo-labelled images.
+
+Leakage safeguards
+- Pseudo-labels are made only for the unlabelled pool (train ids outside the labelled subset);
+  `make_pseudo_labels` raises if the pool overlaps the labelled subset. Val and test never overlap
+  either, by construction of the split.
+- tau is chosen from the teacher's VALIDATION predictions only. The test set is not used here.
+- The true labels of pool images are read in exactly one place, `quality()`, and that function is
+  called only after the student has been trained, writing pseudo_label_quality.json. The student's
+  training and the selection never read that file. Computing it later (not before training) means
+  the hidden labels cannot, even by accident, influence which images are selected.
+
+Files written into the student run folder: pseudo_labels.csv (the exact training targets),
+pseudo_label_thresholds.csv (validation precision and coverage for every tau),
+pseudo_label_selection.json (chosen tau, its validation precision / coverage, counts per class).
 """
 
 from __future__ import annotations
@@ -26,16 +45,29 @@ import pandas as pd
 from eurosat_le.constants import CLASSES
 from eurosat_le.data.splits import load_split, load_subset
 
+# Candidate thresholds 0.50, 0.51, ..., 0.99 (rounded to remove floating-point noise from arange).
 TAU_GRID = np.round(np.arange(0.50, 0.995, 0.01), 2)
 
 
 def softmax(logits: np.ndarray) -> np.ndarray:
+    """Row-wise softmax of (N, C) logits, computed in float64 with the row max subtracted for stability."""
     z = logits.astype(np.float64) - logits.max(axis=1, keepdims=True)
     e = np.exp(z)
     return e / e.sum(axis=1, keepdims=True)
 
 
 def threshold_table(val_probs: np.ndarray, val_labels: np.ndarray, grid=TAU_GRID) -> pd.DataFrame:
+    """Validation precision and coverage of the teacher's predictions for each threshold tau.
+
+    Args:
+        val_probs: (N, C) teacher softmax probabilities on the validation set.
+        val_labels: (N,) true validation labels (validation labels are allowed to be used here).
+        grid: thresholds to evaluate.
+    Returns:
+        One row per tau: `coverage` = fraction of validation images with confidence >= tau,
+        `precision` = fraction of those predicted correctly (NaN if no image passes).
+    Confidence is the maximum softmax probability and the prediction is its argmax.
+    """
     conf, pred = val_probs.max(1), val_probs.argmax(1)
     rows = []
     for tau in grid:
@@ -46,6 +78,12 @@ def threshold_table(val_probs: np.ndarray, val_labels: np.ndarray, grid=TAU_GRID
 
 
 def choose_threshold(val_probs, val_labels, target_precision: float = 0.95, grid=TAU_GRID) -> tuple[float, pd.DataFrame]:
+    """Pick tau on validation data only; return (tau, the full threshold table).
+
+    tau is the smallest grid value whose validation precision is at least `target_precision`: the
+    smallest tau keeps the most pseudo-labels while the quality is known to be acceptable. If no
+    tau reaches the target, the most precise tau is returned instead (the lowest one among ties).
+    """
     table = threshold_table(val_probs, val_labels, grid)
     ok = table[table["precision"] >= target_precision]
     if not ok.empty:
@@ -54,7 +92,17 @@ def choose_threshold(val_probs, val_labels, target_precision: float = 0.95, grid
 
 
 def select(pool_probs: np.ndarray, tau: float, balance: bool = False, class_prior=None) -> np.ndarray:
-    """Return indices of selected pool items, most confident first within each class."""
+    """Return indices (into the pool) of the selected items, ordered by decreasing confidence.
+
+    Args:
+        pool_probs: (M, C) teacher softmax probabilities on the unlabelled pool.
+        tau: keep items whose confidence (max probability) is >= tau.
+        balance: if True, cap each predicted class (see below).
+        class_prior: per-class counts or weights of the LABELLED subset; required when balance is True.
+    Without balancing, all confident items are kept. With balancing, a predicted class keeps at most
+    ceil(prior share x number of confident items) items, most confident first; the caps are an upper
+    bound only, so a class with fewer confident items keeps all of its items.
+    """
     conf, pred = pool_probs.max(1), pool_probs.argmax(1)
     keep = np.flatnonzero(conf >= tau)
     if not balance:
@@ -74,20 +122,34 @@ def select(pool_probs: np.ndarray, tau: float, balance: bool = False, class_prio
 
 
 def _load_npz(path: Path):
+    """Load a preds_*.npz file as (float32 logits, labels, string ids); logits were saved as float16."""
     d = np.load(path, allow_pickle=False)
     return d["logits"].astype(np.float32), d["labels"], d["ids"].astype(str)
 
 
 def make_pseudo_labels(teacher_dir: Path, out_dir: Path, fraction: float, seed: int,
                        target_precision: float = 0.95, balance: bool = False) -> dict:
-    """Create out_dir/pseudo_labels.csv from teacher_dir; return the selection summary."""
+    """Create out_dir/pseudo_labels.csv from teacher_dir; return the selection summary.
+
+    Args:
+        teacher_dir: finished teacher run folder (needs preds_val.npz and preds_unlabelled.npz).
+        out_dir: the student's run folder; created if needed. Existing pseudo-label files are overwritten.
+        fraction, seed: the labelled-subset settings of the teacher (identify its labelled ids).
+        target_precision: validation precision that tau must reach (see `choose_threshold`).
+        balance: apply the class-balanced selection in `select`.
+    Returns:
+        The dict also saved as pseudo_label_selection.json.
+    The pseudo-label of an image is the teacher's argmax class. With balance=True the class prior is
+    the class distribution of the labelled subset (those labels are known, so this is legitimate).
+    """
     val_logits, val_labels, _ = _load_npz(teacher_dir / "preds_val.npz")
     pool_logits, _, pool_ids = _load_npz(teacher_dir / "preds_unlabelled.npz")
     labelled = set(load_subset(fraction, seed))
+    # Safeguard: pseudo-labelled images must come from the unlabelled pool, never from the labelled subset.
     if labelled & set(pool_ids):
         raise RuntimeError("teacher's unlabelled pool overlaps the labelled subset")
 
-    tau, table = choose_threshold(softmax(val_logits), val_labels, target_precision)
+    tau, table = choose_threshold(softmax(val_logits), val_labels, target_precision)  # validation only
     pool_probs = softmax(pool_logits)
     prior = None
     if balance:
@@ -112,12 +174,20 @@ def make_pseudo_labels(teacher_dir: Path, out_dir: Path, fraction: float, seed: 
 
 
 def load_pseudo_labels(path: Path) -> tuple[list[str], list[int]]:
+    """Read pseudo_labels.csv; return (ids, integer class labels) in file order (most confident first)."""
     pl = pd.read_csv(path)
     return pl["id"].tolist(), pl["label"].astype(int).tolist()
 
 
 def quality(pseudo_path: Path) -> dict:
-    """ANALYSIS ONLY: accuracy of pseudo-labels against the hidden true labels."""
+    """ANALYSIS ONLY: accuracy of pseudo-labels against the hidden true labels.
+
+    Returns the overall accuracy and, per predicted class, the number of pseudo-labels and the
+    fraction that is correct (None for empty classes). This is the only place that reads the
+    true labels of unlabelled pool images; the engine calls it after the student has finished
+    training, and nothing reads its output during training or selection. It is a diagnostic for
+    the report (how large confirmation bias could be), never an input to any decision.
+    """
     pl = pd.read_csv(pseudo_path)
     truth = load_split().set_index("id").loc[pl["id"], "label"].to_numpy()
     correct = pl["label"].to_numpy() == truth

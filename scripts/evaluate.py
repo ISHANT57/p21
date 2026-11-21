@@ -13,6 +13,23 @@ Writes to results/summary/eval/:
     top_confusions.csv     the most frequent (true -> predicted) mistakes per group
     compare_*.csv          paired comparisons: per seed (pairs) and summarised over seeds
     errors_<run>.png       misclassified test images (with --examples)
+
+Where it fits: Phase 6 (see docs/EVALUATION.md). It reads the saved predictions of every finished run
+(preds_val.npz and preds_test.npz in each run folder, plus config.yaml and metrics.json) and never trains
+or re-runs a model. scripts/make_figures.py (Phase 7) then turns these tables into figures and tables.
+
+Design decisions:
+- Metrics are RECOMPUTED from the saved logits (softmax, then argmax), not copied from metrics.json. As a
+  cross-check, accuracy and macro-F1 are compared with the logged values and a WARNING is printed if they
+  differ by more than 0.001 (the run is still used; the script does not abort).
+- ECE uses 15 confidence bins.
+- Every number over seeds is a mean and a sample std (ddof=1) over the labelled-subset seeds (3 in the
+  main grid). With a single seed the std is empty (NaN) in the CSV.
+- Paired comparisons only match runs that agree on every other factor AND the seed, so both sides use the
+  same labelled images, the same initialisation seed and the same test images. The test predictions of
+  every run are aligned by sorted sample id. The interval is a 95 percent paired bootstrap over test images
+  (--n-boot resamples, default 1000). Results over seeds are reported as counts of seeds, not p-values.
+- A comparison with no matching pairs (for example the runs do not exist yet) is silently skipped.
 """
 
 import argparse
@@ -26,6 +43,8 @@ from eurosat_le.eval.evaluate import (check_against_logged, compare, load_preds,
                                       run_metrics, summarise_comparison, top_confusions)
 from eurosat_le.train.engine import RUNS_DIR
 
+# Keys that define one "setting"; the 3 seeds of a setting are aggregated together. "variant" is "supervised"
+# for plain runs and the config name_suffix (e.g. "pl", "plb") for pseudo-label students.
 GROUP = ["model", "modality", "fraction", "variant"]
 COMPARISONS = [  # (file stem, factor, a, b): b is compared against a
     ("rgb_vs_ms", "modality", "rgb", "ms"),
@@ -39,10 +58,16 @@ COMPARISONS = [  # (file stem, factor, a, b): b is compared against a
 
 
 def group_name(row) -> str:
+    """File stem for a group's confusion CSV, e.g. "resnet50_rgb_1pct_supervised".
+
+    `row` needs the GROUP keys. The fraction is written as a percentage with `:g`, so 0.01 -> "1pct" and
+    1.0 -> "100pct". scripts/make_figures.py rebuilds these names (CONF_GROUP), so keep both in sync.
+    """
     return f"{row['model']}_{row['modality']}_{row['fraction'] * 100:g}pct_{row['variant']}"
 
 
 def main() -> None:
+    """Run the whole Phase 6 evaluation: per-run metrics, group tables, confusions, paired comparisons."""
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
     p.add_argument("--out", type=Path, default=RESULTS_DIR / "summary" / "eval")
@@ -71,6 +96,8 @@ def main() -> None:
     if issues:
         print("WARNING: recomputed metrics differ from metrics.json:\n  " + "\n  ".join(issues))
 
+    # One row per setting; std is NaN when n_seeds == 1. Only the test F1/accuracy/ECE are aggregated here,
+    # plus the validation F1 mean for reference.
     groups = per_run.groupby(GROUP).agg(
         n_seeds=("seed", "nunique"),
         test_acc_mean=("test_accuracy", "mean"), test_acc_std=("test_accuracy", "std"),
@@ -79,6 +106,7 @@ def main() -> None:
     ).reset_index()
     groups.to_csv(out / "groups.csv", index=False)
 
+    # Per-class table: test split only; precision/recall are averaged over seeds, F1 also gets a std.
     per_class = pd.DataFrame(class_rows).groupby([*GROUP, "class"]).agg(
         precision=("precision", "mean"), recall=("recall", "mean"),
         f1_mean=("f1", "mean"), f1_std=("f1", "std"), n_seeds=("seed", "nunique"),
@@ -87,7 +115,7 @@ def main() -> None:
 
     # ---- confusion matrices ---------------------------------------------------------------------
     conf_rows = []
-    for key, g in runs.groupby(GROUP):
+    for key, g in runs.groupby(GROUP):  # key is a tuple in GROUP order (GROUP is a list of 4 columns)
         row = dict(zip(GROUP, key))
         cm = mean_confusion(list(g["dir"]))
         pd.DataFrame(cm, index=CLASSES, columns=CLASSES).to_csv(out / "confusion" / f"{group_name(row)}.csv")
@@ -98,13 +126,13 @@ def main() -> None:
     # ---- paired comparisons ---------------------------------------------------------------------
     for stem, factor, a, b in COMPARISONS:
         pairs = compare(runs, factor, a, b, args.n_boot)
-        if pairs.empty:
+        if pairs.empty:  # nothing to pair yet (one side has no runs)
             continue
         pairs.to_csv(out / f"compare_{stem}_pairs.csv", index=False)
         summ = summarise_comparison(pairs)
         summ.to_csv(out / f"compare_{stem}.csv", index=False)
         print(f"\n{stem}: macro-F1({b}) - macro-F1({a}), paired by seed")
-        cols = [c for c in GROUP if c != factor and c in summ.columns]
+        cols = [c for c in GROUP if c != factor and c in summ.columns]  # the compared factor is a/b, not a key
         print(summ[cols + ["n_seeds", "delta_f1_mean", "delta_f1_std", "seeds_b_better", "seeds_ci_excludes_0"]]
               .to_string(index=False, float_format="%.4f"))
 
@@ -114,7 +142,18 @@ def main() -> None:
 
 
 def plot_errors(run_dir: Path, path: Path, n: int = 24, seed: int = 0) -> None:
-    """Grid of misclassified test images (shown in RGB, also for 13-band runs)."""
+    """Grid of misclassified test images (shown in RGB, also for 13-band runs).
+
+    Args:
+        run_dir: a finished run folder with preds_test.npz.
+        path: output PNG.
+        n: maximum number of images (6 per row); fewer if the run makes fewer errors.
+        seed: seed of the random choice among the errors, so the same grid is drawn every time.
+
+    Each title is "true -> predicted (confidence)", the confidence being the top softmax probability.
+    Images come from the RGB cache for every run: the cache rows follow splits/split.csv, so an image is
+    found through its position in that table.
+    """
     import matplotlib.pyplot as plt
 
     from eurosat_le import viz
@@ -125,22 +164,22 @@ def plot_errors(run_dir: Path, path: Path, n: int = 24, seed: int = 0) -> None:
     viz.apply_style()
     logits, y, ids = load_preds(run_dir)
     probs = softmax(logits)
-    wrong = np.flatnonzero(probs.argmax(1) != y)
+    wrong = np.flatnonzero(probs.argmax(1) != y)  # indices into the id-sorted test arrays
     pick = np.random.default_rng(seed).choice(wrong, min(n, len(wrong)), replace=False)
     rgb = load_cache("rgb")
-    row_of = {sid: i for i, sid in enumerate(load_split()["id"])}
+    row_of = {sid: i for i, sid in enumerate(load_split()["id"])}  # sample id -> row in split.csv == row in the cache
     cols = 6
     rows = int(np.ceil(len(pick) / cols))
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.0, rows * 2.3), squeeze=False)
     for ax in axes.flat:
         ax.axis("off")
     for ax, i in zip(axes.flat, pick):
-        img = rgb[row_of[ids[i]]].transpose(1, 2, 0)
+        img = rgb[row_of[ids[i]]].transpose(1, 2, 0)  # cache is (C, H, W); imshow wants (H, W, C)
         ax.imshow(img)
         ax.set_title(f"{CLASSES[y[i]]}\n→ {CLASSES[probs[i].argmax()]}\n({probs[i].max():.2f})", fontsize=6.5,
                      fontweight="normal", color=viz.TEXT_PRIMARY)
     fig.suptitle(f"{run_dir.name}: misclassified test images (true → predicted, confidence)", fontsize=9)
-    fig.subplots_adjust(wspace=0.15, hspace=0.6)
+    fig.subplots_adjust(wspace=0.15, hspace=0.6)  # hspace leaves room for the three-line titles
     fig.savefig(path)
     plt.close(fig)
 

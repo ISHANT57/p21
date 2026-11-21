@@ -12,6 +12,25 @@ Usage:
 --shard k/n takes every n-th run starting at k, so group members (or a Colab and a
 Kaggle session) can work on disjoint parts of the grid at the same time.
 --max-hours stops *starting* new runs once the budget is used (Kaggle sessions end at 12 h).
+
+Plans (grids are defined in eurosat_le.train.grid):
+- main: the supervised grid, 3 models x 2 input types x 3 label fractions x 3 seeds = 54 runs.
+- tune: the learning-rate sweep (3 learning rates per model on RGB / 10% labels / seed 0). Tuning
+  runs never evaluate the test set.
+- pl: one pseudo-label student per teacher cell (by default scratch CNN + ResNet-50, 1% and 10%
+  labels). A student needs its supervised teacher to be finished; students whose teacher is not
+  finished are reported as "waiting" and skipped in this invocation, so run the script again once
+  the teachers exist (they may have been trained on another machine).
+
+Behaviour
+- The plan is expanded into a list of configs, then --shard k/n keeps entries k, k+n, k+2n, ... of
+  that list (0-based). Every shard sees the same ordering, so shards k=0..n-1 together cover each
+  run exactly once and do not overlap.
+- Runs with metrics.json are counted as done and skipped, so a re-launch after a disconnect resumes
+  where the last session stopped. --dry-run only prints the status: [x] done, [w] waiting for the
+  teacher, [ ] to do.
+- Each run is wrapped in try/except: a failure is printed, appended to results/runs/_failed.log, and
+  the grid continues; the exit code is 1 if any run failed. GPU memory is released between runs.
 """
 
 import argparse
@@ -48,7 +67,7 @@ def main() -> None:
     overrides = parse_set(args.set)
     if args.plan == "pl" and args.balance:
         overrides.setdefault("name_suffix", "plb")  # keep balanced students apart from the default ones
-    teachers = {}
+    teachers = {}  # pl plan only: student run name -> teacher run name
     if args.plan == "main":
         cfgs = main_grid(args.models or MAIN_MODELS, args.modalities, args.fractions or LABEL_FRACTIONS,
                          args.seeds, **overrides)
@@ -56,14 +75,16 @@ def main() -> None:
         cfgs = tune_grid(args.models or MAIN_MODELS, **overrides)
     else:
         cfgs = []
+        # Students are derived from the planned teacher configs, so the plan can be listed before any teacher exists.
         for t in main_grid(args.models or PL_MODELS, args.modalities, args.fractions or PL_FRACTIONS, args.seeds):
             s = student_config(t, **dict(overrides))
             teachers[s.run_name] = t.run_name
             cfgs.append(s)
     k, n = map(int, args.shard.split("/"))
-    cfgs = cfgs[k::n]
+    cfgs = cfgs[k::n]  # shard k of n: every n-th run starting at index k
 
     def finished(name):
+        # metrics.json is the last file a run writes, so it marks a completed run
         return (RUNS_DIR / name / "metrics.json").exists()
 
     done = [c for c in cfgs if finished(c.run_name)]
@@ -81,6 +102,7 @@ def main() -> None:
     t0, failed = time.time(), []
     for i, cfg in enumerate(todo, 1):
         hours = (time.time() - t0) / 3600
+        # Checked only between runs: a run that has started is never interrupted.
         if args.max_hours is not None and hours >= args.max_hours:
             print(f"time budget of {args.max_hours} h used; stopping before {cfg.run_name}")
             break

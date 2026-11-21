@@ -1,4 +1,26 @@
-"""Project-wide constants: class names, band metadata, default paths."""
+"""Project-wide constants: class names, band metadata, download sources, default paths and seeds.
+
+This module is the single source of truth that every other part of the pipeline
+imports (download, index/splits, cache, datasets, training), so that no script
+hard-codes a path, a class order or a seed on its own.
+
+Contents:
+    - Default directories (data/raw, splits/, results/), derived from the repo root.
+    - CLASSES / CLASS_TO_IDX: the 10 EuroSAT classes in alphabetical order. The list
+      index is the integer label used in splits/split.csv and in every model output,
+      so reordering this list would silently change all labels.
+    - MS_BANDS / MS_RGB_IDX: channel order of the 13-band GeoTIFFs. Important fact:
+      the files store B8A LAST (not between B08 and B09 as in the usual Sentinel-2
+      order). See docs/DATA.md for how this was verified. The first-layer adaptation
+      of the pretrained models (docs/MODELS.md) relies on MS_RGB_IDX.
+    - DATASETS: where to download each input type from. Each entry lists mirrors in
+      the order they are tried, with the exact byte size and a fixed hash (MD5 for
+      Zenodo, SHA-256 for the pinned Hugging Face commit), so a truncated or altered
+      archive is rejected by eurosat_le.data.download.
+    - SPLIT_SEED / SUBSET_SEEDS / LABEL_FRACTIONS: fixed seeds and label fractions
+      that define the train/val/test partition and the nested labelled subsets
+      (eurosat_le.data.splits). Changing them changes every experiment.
+"""
 
 from pathlib import Path
 
