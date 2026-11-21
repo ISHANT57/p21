@@ -221,7 +221,7 @@ def main() -> None:
          "Val. F1 is the validation macro-F1 of the selected weights.", True, r"\scriptsize"),
         ("pl_details", pl_details(runs), "Pseudo-label students: the threshold $\\tau$ chosen on the validation set, the validation "
          "precision at $\\tau$, the number of pool images that received a pseudo-label, and the test macro-F1 change against "
-         "the teacher of the same seed.", True, r"\small"),
+         "the teacher of the same seed.", True, r"\scriptsize"),
         ("training_cost", training_cost(runs), "Training cost of the supervised runs on a free-tier Tesla T4.", False, r"\small"),
     ]
     # The learning-rate sweep table is only made if the sweep log exists.
