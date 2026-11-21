@@ -1,43 +1,65 @@
-% IEEE two-column report. Figures and tables are read from ../results (see the \figdir and \tabdir macros).
-% Build: latexmk -pdf main.tex   (needs a LaTeX install with IEEEtran and booktabs)
-\documentclass[conference]{IEEEtran}
+% Single-column report in the style of a NeurIPS paper (title between two rules, numbered sections,
+% numbered figure and table captions, numbered references). The full two-column IEEE version is main_ieee.tex.
+% Build: latexmk -pdf main.tex   (pdfLaTeX; needs titlesec, microtype, booktabs, which Overleaf has)
+\documentclass[10pt]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx}
+\usepackage{microtype}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{array}
 \usepackage{xcolor}
+\usepackage[explicit]{titlesec}
 \usepackage[hidelinks]{hyperref}
 \newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
 \newcommand{\figdir}{../results/figures}
 \newcommand{\tabdir}{../results/tables}
 
+% Paragraph and heading layout: no indent, a little space between paragraphs, bold numbered headings.
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5.5pt plus 1pt}
+\titleformat{\section}{\large\bfseries}{\thesection}{0.9em}{#1}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.9em}{#1}
+\titlespacing*{\section}{0pt}{13pt plus 3pt minus 2pt}{6pt plus 1pt}
+\titlespacing*{\subsection}{0pt}{9pt plus 2pt minus 2pt}{4pt plus 1pt}
+% Let floats sit at the top of a page more freely, so that figures and tables do not leave big gaps.
+\setcounter{topnumber}{3}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.8}
+\setlength{\textfloatsep}{14pt plus 2pt minus 2pt}
+
 \begin{document}
 
-\title{Label-Efficient Land-Use Classification on EuroSAT:\\
-RGB versus 13-Band Input, Supervised versus Pseudo-Labelled Training}
+% Title between a thick and a thin rule, then the authors, then the abstract (as in the example paper).
+\noindent\rule{\textwidth}{4pt}\par\vspace{10pt}
+\begin{center}
+{\LARGE\bfseries Label-Efficient Land-Use Classification on EuroSAT:\\[3pt]
+RGB versus 13-Band Input, Supervised versus Pseudo-Labelled Training\par}
+\end{center}
+\vspace{4pt}\noindent\rule{\textwidth}{1pt}\par\vspace{16pt}
 
-\author{\IEEEauthorblockN{Ishant Bhoyar}
-\IEEEauthorblockA{Enrolment no. 202410101200059\\Deep Learning, Sitare University}
-\and
-\IEEEauthorblockN{Gaurav Kumar}
-\IEEEauthorblockA{Enrolment no. 202410101200047\\Deep Learning, Sitare University}
-\and
-\IEEEauthorblockN{Jagriti Pandey}
-\IEEEauthorblockA{Enrolment no. 202410101200060\\Deep Learning, Sitare University}
-\and
-\IEEEauthorblockN{Ayush Kumar}
-\IEEEauthorblockA{Enrolment no. 202410101200028\\Deep Learning, Sitare University}}
+\begin{center}
+\small
+\begin{tabular}[t]{@{}c@{\hspace{22pt}}c@{\hspace{22pt}}c@{\hspace{22pt}}c@{}}
+\textbf{Ishant Bhoyar} & \textbf{Gaurav Kumar} & \textbf{Jagriti Pandey} & \textbf{Ayush Kumar} \\
+Enrolment no. & Enrolment no. & Enrolment no. & Enrolment no. \\
+202410101200059 & 202410101200047 & 202410101200060 & 202410101200028 \\
+\multicolumn{4}{c}{Deep Learning, Sitare University} \\
+\end{tabular}
+\end{center}
+\vspace{14pt}
 
-\maketitle
-
-\begin{abstract}
+\begin{center}
+{\large\bfseries Abstract}
+\end{center}
+\begin{quote}
 We ask how much test accuracy a land-use classifier loses when only 1\% or 10\% of the EuroSAT training labels are used, whether the extra Sentinel-2 bands help, and whether pseudo-labelling recovers some of the loss. We train a small CNN from scratch, an ImageNet-pretrained ResNet-50, and an ImageNet-pretrained ViT-Small on RGB and on all 13 bands, at 1\%, 10\% and 100\% of the labels (three seeds at 1\% and 10\%, one at 100\%). With 1\% of the labels (191 images), the pretrained models reach 88.5--91.2\% test macro-F1 and the scratch CNN 74.6--78.1\%; with all labels every model reaches 97.5--99.1\%. The 13-band input helps the scratch CNN most (+3.5 to +4.2 points at 1\% and 10\%), ResNet-50 by about +0.9 points, and ViT-Small by 0.5 points or less, which at 1\% is within the spread between seeds. Pseudo-labelling a ResNet-50 improves it by 2.3 to 2.4 points at 1\% of the labels and by 0.2 points at 10\%. Pseudo-labelling results rest on two seeds, and the 100\% results on one.
-\end{abstract}
-
-\begin{IEEEkeywords}
-EuroSAT, Sentinel-2, label efficiency, multispectral, pseudo-labelling, transfer learning
-\end{IEEEkeywords}
+\end{quote}
+\vspace{4pt}
 
 \section{Introduction}
 Land-use and land-cover maps built from satellite images need labelled examples, and labels are expensive: an expert has to inspect each patch. Sentinel-2 satellites, however, record far more than the red, green and blue (RGB) bands of an ordinary photograph. They measure 13 spectral bands, including near-infrared and short-wave infrared, which separate vegetation, water and built-up areas better than visible light does~\cite{drusch2012sentinel}. Two ideas could therefore reduce the labelling effort: using the extra spectral bands, and using the many unlabelled images that are available anyway.
@@ -126,28 +148,12 @@ Ch. & Band & Centre (nm) & Res. (m) & Note \\
 \section{Method}\label{sec:method}
 \subsection{Models}
 \label{sec:models}
-We compare three model families (Table~\ref{tab:models}).
+We compare three model families.
 \begin{itemize}
 \item \textbf{Scratch CNN} (2.8M parameters): a small ResNet-style network with four stages of two basic blocks (widths 32--256), trained from random initialisation on the $64\times64$ input.
 \item \textbf{ResNet-50}~\cite{he2016resnet} (23.5M): the ImageNet-1k weights \texttt{resnet50.a1\_in1k} from the \texttt{timm} library, fed images upsampled to $224\times224$.
 \item \textbf{ViT-Small}~\cite{dosovitskiy2021vit} (21.7M): the \texttt{timm} model \texttt{vit\_small\_patch16\_224.}\allowbreak\texttt{augreg\_in21k\_ft\_in1k}, pretrained on ImageNet-21k and fine-tuned on ImageNet-1k, also at $224\times224$.
 \end{itemize}
-
-\begin{table}[t]
-\centering
-\caption{The three models. Parameters are given for RGB and for 13-band input.}
-\label{tab:models}
-\small
-\begin{tabular}{llcc}
-\toprule
-Model & Pretraining & Input & Params (RGB / 13) \\
-\midrule
-Scratch CNN & none & 64 px & 2.80M / 2.80M \\
-ResNet-50 & ImageNet-1k & 224 px & 23.5M / 23.6M \\
-ViT-Small & ImageNet-21k, then 1k & 224 px & 21.7M / 22.7M \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \textbf{Using 13 bands with pretrained weights.} For 13-band input we replace the first layer (the first convolution of ResNet-50, the patch-embedding projection of ViT-Small). The red, green and blue filters of the pretrained layer are copied to the matching bands B04, B03 and B02. Each of the other ten bands receives the mean of the three RGB filters. All 13 filters are then multiplied by $3/13$, so that the summed first-layer response keeps about the size the network saw with three channels (every band is standardised to unit variance). The scratch CNN simply has 13 input channels. This initialisation is a design choice with limits: ImageNet pretraining knows nothing about near-infrared or short-wave-infrared bands, so the network must learn how to use them during fine-tuning, which is hard with only 191 labelled images. The scaling by $3/13$ also weakens the RGB filters, so the first forward pass of the 13-band model differs from that of the RGB model.
 
@@ -172,9 +178,7 @@ ViT-Small & $10^{-4}$ & 0.05 & 10\% & 30 & 1{,}500 \\
 
 \textbf{Equal training budget.} Every run trains for $\max(\text{epochs}\times\text{one pass over its labelled set},\ \text{min\_steps})$ optimiser steps, with 30 epochs for the pretrained models and a floor of 1{,}500 steps (3{,}000 for the scratch CNN). With 100\% of the labels one pass is 295 steps. With 1\% or 10\% of the labels one pass is only 2 or 29 steps, so each epoch is stretched to 50 steps, drawn with replacement. The number of epochs, and so the number of validation checks, is therefore the same for every label fraction. A consequence is that small label sets are passed over many more times than large ones, which can favour overfitting but also gives every fraction enough steps to converge.
 
-\textbf{Learning rate.} We swept three learning rates on one cell (RGB, 10\% labels, seed 0), choosing by validation macro-F1 only; the test set was never evaluated (Table~\ref{tab:lr_sweep}). For the scratch CNN, $2\times10^{-3}$ was best among $\{10^{-3}, 2\times10^{-3}, 4\times10^{-3}\}$. For ResNet-50 the validation macro-F1 was 0.964, 0.967 and 0.969 for $2\times10^{-4}$, $5\times10^{-4}$ and $10^{-3}$; the differences are below 0.5 points, so we kept the default $5\times10^{-4}$. ViT-Small used its default $10^{-4}$ without a sweep. The chosen rate is used unchanged for every input type, label fraction and seed.
-
-\input{\tabdir/lr_sweep.tex}
+\textbf{Learning rate.} We swept three learning rates on one cell (RGB, 10\% labels, seed 0), choosing by validation macro-F1 only; the test set was never evaluated (the sweep is listed in the repository). For the scratch CNN, $2\times10^{-3}$ was best among $\{10^{-3}, 2\times10^{-3}, 4\times10^{-3}\}$, with validation macro-F1 0.930, 0.931 and 0.921. For ResNet-50 the validation macro-F1 was 0.964, 0.967 and 0.969 for $2\times10^{-4}$, $5\times10^{-4}$ and $10^{-3}$; the differences are below 0.5 points, so we kept the default $5\times10^{-4}$. ViT-Small used its default $10^{-4}$ without a sweep. The chosen rate is used unchanged for every input type, label fraction and seed.
 
 \subsection{Pseudo-labelling}
 A supervised run with 1\% or 10\% of the labels acts as the \emph{teacher}. After training it predicts the unlabelled pool. The procedure for one teacher is:
@@ -205,16 +209,14 @@ Only the run folders of one lane (13 runs) were kept. For all runs, the test acc
 
 \section{Results}\label{sec:results}
 \subsection{Supervised label efficiency}
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
-\includegraphics[width=0.85\textwidth]{\figdir/label_efficiency_f1.png}
+\includegraphics[width=0.86\textwidth]{\figdir/label_efficiency_f1.png}
 \caption{Test macro-F1 against the share of labelled training images (mean $\pm$ std over three seeds at 1\% and 10\%; one seed at 100\%). The pretrained models lose 8--10 points from 100\% to 1\% of the labels; the scratch CNN loses 21--23.}
 \label{fig:label_efficiency}
-\end{figure*}
+\end{figure}
 \input{\tabdir/supervised_f1.tex}
-With all labels, every model is within 97.5--99.1\% macro-F1, and the differences between the pretrained models (at most 0.4 points on one seed) are not meaningful. Accuracy falls much more for the scratch CNN. From 100\% to 1\% of the labels, ResNet-50 loses 10.1 points on RGB and 9.7 on 13 bands, and ViT-Small 8.1 and 7.7; the scratch CNN loses 22.9 and 20.7. Test accuracy (Table~\ref{tab:supervised_acc}) is between 0.0 and 1.0 point higher than macro-F1 in every cell and picks the same best setting in every column, so the conclusions do not depend on the metric.
-
-\input{\tabdir/supervised_acc.tex}
+With all labels, every model is within 97.5--99.1\% macro-F1, and the differences between the pretrained models (at most 0.4 points on one seed) are not meaningful. Accuracy falls much more for the scratch CNN. From 100\% to 1\% of the labels, ResNet-50 loses 10.1 points on RGB and 9.7 on 13 bands, and ViT-Small 8.1 and 7.7; the scratch CNN loses 22.9 and 20.7. Test accuracy (table in the repository) is between 0.0 and 1.0 point higher than macro-F1 in every cell and picks the same best setting in every column, so the conclusions do not depend on the metric.
 
 \subsection{Comparison of the models}
 Table~\ref{tab:model_comparison} compares the models directly, matched on seed. At 1\% of the labels, ResNet-50 beats the scratch CNN by 13.9 (RGB) and 11.3 (13 bands) points, and ViT-Small beats it by 16.1 and 13.1 points, in all three seeds. ViT-Small is ahead of ResNet-50 at 1\% in all three seeds (+2.2 RGB, +1.8 13 bands) and at 10\% by 1.0 point on RGB (3/3 seeds); on 13 bands at 10\% the gap is 0.3 points and only 2 of 3 seeds agree. The gap between pretrained and scratch models shrinks with more labels and with the 13-band input: at 10\% of the labels ViT-Small is 5.7 points ahead of the scratch CNN on RGB but only 1.6 on 13 bands. At 100\% all gaps are 1.3 points or less on a single seed, and ResNet-50 on 13 bands (99.05\%) and ViT-Small (98.91\%) differ by 0.14 points, which we do not read as a difference.
@@ -224,63 +226,39 @@ Table~\ref{tab:model_comparison} compares the models directly, matched on seed. 
 \subsection{Value of the extra spectral bands}
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{\figdir/rgb_vs_ms_gain.png}
+\includegraphics[width=0.60\textwidth]{\figdir/rgb_vs_ms_gain.png}
 \caption{Gain in test macro-F1 of 13-band over RGB input; bars are the mean over seeds, dots single seeds. The gain is largest for the scratch CNN and small for the pretrained models.}
 \label{fig:gain}
 \end{figure}
-Thirteen bands improve every model at every fraction in the mean, but by very different amounts (Fig.~\ref{fig:gain}). The scratch CNN gains 3.5 points at 1\% and 4.2 at 10\% labels, in all three seeds, and 1.2 points at 100\% on one seed. ResNet-50 gains 0.9 points at 1\% and at 10\% (3/3 seeds each, standard deviation 0.6 and 0.07) and 0.4 at 100\%. ViT-Small gains 0.5 points at 1\% (2 of 3 seeds; the seed-to-seed standard deviation is 0.9) and 0.1 points at 10\%; the bootstrap interval excludes zero in 1 of 3 seeds at 1\% and in none at 10\%. A plausible reading is that the pretrained first layers were fitted to RGB, so the other bands add little, while the scratch CNN learns its own first layer; we did not test this. For all three models the gain is larger at 1\% than at 100\% of the labels, but it does not grow steadily as labels become scarcer: the scratch CNN gains more at 10\% than at 1\%, and ViT-Small gains slightly more at 100\% (0.15 points) than at 10\% (0.12). Per class, for ViT-Small at 1\% labels (Table~\ref{tab:per_class_f1_1pct}), the clearest gains are River (84.8 to 91.4\%) and SeaLake (95.3 to 97.7\%), and Residential and Highway lose 1.7 and 1.2 points; most class differences are within one to two standard deviations over seeds.
+Thirteen bands improve every model at every fraction in the mean, but by very different amounts (Figure~\ref{fig:gain}). The scratch CNN gains 3.5 points at 1\% and 4.2 at 10\% labels, in all three seeds, and 1.2 points at 100\% on one seed. ResNet-50 gains 0.9 points at 1\% and at 10\% (3/3 seeds each, standard deviation 0.6 and 0.07) and 0.4 at 100\%. ViT-Small gains 0.5 points at 1\% (2 of 3 seeds; the seed-to-seed standard deviation is 0.9) and 0.1 points at 10\%; the bootstrap interval excludes zero in 1 of 3 seeds at 1\% and in none at 10\%. A plausible reading is that the pretrained first layers were fitted to RGB, so the other bands add little, while the scratch CNN learns its own first layer; we did not test this. For all three models the gain is larger at 1\% than at 100\% of the labels, but it does not grow steadily as labels become scarcer: the scratch CNN gains more at 10\% than at 1\%, and ViT-Small gains slightly more at 100\% (0.15 points) than at 10\% (0.12). Per class, for ViT-Small at 1\% labels (Table~\ref{tab:per_class_f1_1pct}), the clearest gains are River (84.8 to 91.4\%) and SeaLake (95.3 to 97.7\%), and Residential and Highway lose 1.7 and 1.2 points; most class differences are within one to two standard deviations over seeds.
 
 \subsection{Pseudo-labelling}
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{\figdir/pseudo_label_gain.png}
+\includegraphics[width=0.72\textwidth]{\figdir/pseudo_label_gain.png}
 \caption{Change in test macro-F1 of each pseudo-label student against its own teacher (same model, input, fraction and seed); bars are means, dots single seeds. Students help most at 1\% of the labels.}
 \label{fig:pl}
 \end{figure}
 \input{\tabdir/semi_supervised.tex}
-Pseudo-labelling helps when labels are scarcest (Fig.~\ref{fig:pl}, Tables~\ref{tab:semi_supervised} and~\ref{tab:pl_details}). ResNet-50 students beat their teachers by 2.4 points on RGB and 2.3 on 13 bands at 1\% of the labels (individual students: +2.2 to +2.4), and by 0.2 points on both at 10\% (+0.1 to +0.3), in both seeds each. A pseudo-labelled ResNet-50 at 1\% (RGB 90.9\%, 13 bands 92.0\%) reaches the supervised ViT-Small at 1\% (90.7\% and 91.2\%). The scratch CNN student, one seed, gains 1.8 points. The threshold shows why 10\% teachers add little: at 10\% labels, ResNet-50 teachers reach 95\% validation precision already at the lowest allowed $\tau=0.50$ and keep 99.7--99.8\% of the pool, so the students see mostly images the teacher already classifies correctly. At 1\% labels, $\tau$ was 0.87--0.94 with validation precision 0.950--0.952, keeping 85--91\% of the pool. The scratch CNN teacher at 1\% never reached 95\% precision ($\tau=0.99$, precision 0.893) and kept 64\% of the pool, so its pseudo-labels are noisier. We did not keep the accuracy of the pseudo-labels against the hidden pool labels, so we report validation precision only. A check on a deliberately weak teacher (outside these runs) showed that a global $\tau$ can leave whole classes without pseudo-labels; the class-balanced variant that addresses this was not run.
+Pseudo-labelling helps when labels are scarcest (Figure~\ref{fig:pl}, Tables~\ref{tab:semi_supervised} and~\ref{tab:pl_details}). ResNet-50 students beat their teachers by 2.4 points on RGB and 2.3 on 13 bands at 1\% of the labels (individual students: +2.2 to +2.4), and by 0.2 points on both at 10\% (+0.1 to +0.3), in both seeds each. A pseudo-labelled ResNet-50 at 1\% (RGB 90.9\%, 13 bands 92.0\%) reaches the supervised ViT-Small at 1\% (90.7\% and 91.2\%). The scratch CNN student, one seed, gains 1.8 points. The threshold shows why 10\% teachers add little: at 10\% labels, ResNet-50 teachers reach 95\% validation precision already at the lowest allowed $\tau=0.50$ and keep 99.7--99.8\% of the pool, so the students see mostly images the teacher already classifies correctly. At 1\% labels, $\tau$ was 0.87--0.94 with validation precision 0.950--0.952, keeping 85--91\% of the pool. The scratch CNN teacher at 1\% never reached 95\% precision ($\tau=0.99$, precision 0.893) and kept 64\% of the pool, so its pseudo-labels are noisier. We did not keep the accuracy of the pseudo-labels against the hidden pool labels, so we report validation precision only. A check on a deliberately weak teacher (outside these runs) showed that a global $\tau$ can leave whole classes without pseudo-labels; the class-balanced variant that addresses this was not run.
 
 \input{\tabdir/pl_details.tex}
 
 \subsection{Error analysis}
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{\figdir/per_class_f1_1pct.png}
-\caption{Per-class test F1 of ViT-Small at 1\% of the labels (mean over three seeds), RGB and 13 bands.}
-\label{fig:perclass}
-\end{figure}
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.85\textwidth]{\figdir/confusion_1pct.png}
+\includegraphics[width=0.90\textwidth]{\figdir/confusion_1pct.png}
 \caption{Row-normalised confusion matrices of ViT-Small at 1\% labels, RGB and 13 bands, mean of three seeds. The confusions are mostly among vegetation classes (Pasture, PermanentCrop, HerbaceousVegetation, AnnualCrop).}
 \label{fig:confusion}
-\end{figure*}
+\end{figure}
 At 1\% of the labels, the largest confusions of ViT-Small are among vegetation classes: Pasture predicted as PermanentCrop (6.0--6.7\% of Pasture images), Pasture as HerbaceousVegetation (4.7--5.1\%), HerbaceousVegetation as PermanentCrop (4.4--4.9\%), and AnnualCrop as PermanentCrop (4.8\%, 13 bands). On RGB the largest single confusion is River predicted as Highway (6.7\%), which falls to 4\% on 13 bands, in line with River's gain in F1. The vegetation classes stay at 86--93\% F1 with either input, so the extra bands do not remove the main errors in this setting.
 \input{\tabdir/per_class_f1_1pct.tex}
 
-With 10\% of the labels (Fig.~\ref{fig:confusion10}, Table~\ref{tab:per_class_f1_10pct}) the picture changes. Every class of ViT-Small reaches at least 94.5\% F1, and the River gain from 13 bands has disappeared (97.9\% with both inputs), so it was a small-sample effect. The largest remaining confusions are AnnualCrop predicted as PermanentCrop (2.1--2.8\%) and PermanentCrop predicted as HerbaceousVegetation (1.4\% on 13 bands, 2.8\% on RGB). PermanentCrop is the class with the lowest F1 on RGB (94.5\%) and gains 1.2 points on 13 bands, SeaLake gains 1.0 point (98.6 to 99.6\%), and Pasture loses 1.1 points. These per-class differences are small compared with their standard deviations over three seeds, so we do not interpret them one by one.
+With 10\% of the labels the picture changes. Every class of ViT-Small reaches at least 94.5\% F1, and the River gain from 13 bands has disappeared (97.9\% with both inputs), so it was a small-sample effect. The largest remaining confusions are AnnualCrop predicted as PermanentCrop (2.1--2.8\%) and PermanentCrop predicted as HerbaceousVegetation (1.4\% on 13 bands, 2.8\% on RGB). PermanentCrop is the class with the lowest F1 on RGB (94.5\%) and gains 1.2 points on 13 bands, SeaLake gains 1.0 point (98.6 to 99.6\%), and Pasture loses 1.1 points. These per-class differences are small compared with their standard deviations over three seeds, so we do not interpret them one by one.
 
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.85\textwidth]{\figdir/confusion_10pct.png}
-\caption{Row-normalised confusion matrices of ViT-Small at 10\% labels, RGB and 13 bands, mean of three seeds. Most off-diagonal cells are below 2\%.}
-\label{fig:confusion10}
-\end{figure*}
-\input{\tabdir/per_class_f1_10pct.tex}
 
 \section{Discussion}\label{sec:discussion}
-\subsection{Answers to the three questions}
-\emph{How much does accuracy fall with fewer labels?} Little for pretrained models and a lot for a model trained from scratch: from 100\% to 1\% of the labels, the pretrained models lose 8--10 macro-F1 points and the scratch CNN 21--23; at 10\% the pretrained models are within 1.3--2.2 points of their 100\% score and the scratch CNN on RGB is 5.7 points below.
-
-\emph{Do the extra bands help?} Yes, but how much depends on the model. The gain is 3.5--4.2 points for the scratch CNN, about 0.9 for ResNet-50, and 0.5 or less for ViT-Small, where at 1\% it is within the spread between seeds. The sign is the same in every seed for the scratch CNN and ResNet-50. For pretrained models, a large part of the benefit of more labels comes from ImageNet pretraining, which the extra bands cannot replace.
-
-\emph{Does pseudo-labelling help?} At 1\% of the labels, yes: about +2.3 points for ResNet-50, enough to match the supervised ViT-Small. At 10\% the gain is 0.2 points, too small to matter. The evidence is two seeds for ResNet-50 and one for the scratch CNN, and the students use more images and steps than their teachers, so some of the gain may come from extra compute.
-
-\subsection{Practical recommendations}
 The results suggest four rules for a similar problem. First, when only a few hundred labels are available, start from a pretrained model: the gap to a model trained from scratch is 11--16 points at 1\% of the labels, and the pretrained transformer was the best choice at 1\% and 10\%. Second, when the labelled set is large, the choice of model matters little (all models are within 1.6 points at 100\%), so cost can decide: the scratch CNN trains in 22 minutes against 42 for ResNet-50. Third, use the extra bands if the model is trained from scratch, where they gave 3.5--4.2 points, but do not expect more than one point for a pretrained RGB network without a better first-layer initialisation. Fourth, pseudo-labelling is worth its roughly 1.5-fold training cost at 1\% of the labels, where it lifted ResNet-50 to the level of the supervised ViT-Small, and not at 10\%, where the teacher is already accurate on almost the whole pool.
-
-\subsection{Threats to validity}
-\emph{Internal.} The learning rate was chosen on one cell and reused, so a model whose best rate differs by fraction or input may be under-tuned; the ViT-Small rate was not tuned at all. Few seeds (three, two or one) leave wide uncertainty, so small differences, such as those between the pretrained models at 100\%, should not be read as rankings. \emph{Construct.} Macro-F1 on EuroSAT is close to saturation at 100\% of the labels, so differences there carry little information. \emph{External.} We use one dataset with one split, $64\times64$ patches upsampled to $224\times224$, and models pretrained on natural images. Results may differ on larger patches, on other regions, or with models pretrained on satellite data. \emph{Reporting.} Most numbers come from printed logs, which means no bootstrap intervals for most comparisons; the direction of effects is supported more strongly than their exact size.
 
 \section{Limitations}\label{sec:limits}
 \begin{itemize}
@@ -290,6 +268,7 @@ The results suggest four rules for a similar problem. First, when only a few hun
 \item The band B10 (cirrus) carries almost no surface information (mean about 12 digital numbers) and is kept so that all 13 bands are used; we did not run an ablation without it.
 \item Students train on more images and for more steps than their teachers, so part of any pseudo-labelling gain may come from the extra compute. The teacher's weights were also selected on the validation set used to choose $\tau$, so its validation precision can be slightly optimistic; we report the validation precision at $\tau$ and could not report the accuracy of the pseudo-labels against the hidden pool labels.
 \item Three seeds give wide uncertainty; we report per-seed differences and how many intervals exclude zero, not p-values.
+\item We use one dataset with one split, $64\times64$ patches upsampled to $224\times224$, and models pretrained on natural images, so results may differ on larger patches, on other regions, or with models pretrained on satellite data. Macro-F1 is close to saturation at 100\% of the labels, so differences there carry little information.
 \item The compute budget was a few free-tier T4 sessions, so the 100\% cells have one seed and no error bars, ViT-Small has no learning-rate sweep and no pseudo-labelling, and the optional experiments were skipped. A ViT-Small that is better tuned could change its ranking against ResNet-50.
 \end{itemize}
 
@@ -299,10 +278,10 @@ Five extensions follow from the limitations. (i)~Start from a model pretrained o
 \section{Conclusion}
 On EuroSAT, a pretrained model keeps 88.5--91.2\% macro-F1 with 1\% of the labels, where a scratch CNN reaches 74.6--78.1\%, so pretraining matters more than the amount of labelled data. The 13-band input adds 3.5--4.2 points for the scratch CNN but under one point for the pretrained models. Pseudo-labelling adds about 2.3 points for ResNet-50 at 1\% of the labels and little at 10\%. Because of the time limit, the 100\% results have one seed, pseudo-labelling has two seeds, and most comparisons have no bootstrap intervals, so we state the direction of effects and not exact sizes.
 
-\bibliographystyle{IEEEtran}
+\bibliographystyle{plain}
 \bibliography{references}
 
-\appendices
+\appendix
 \section{All Runs}\label{app:runs}
 Table~\ref{tab:all_runs} lists every finished run. Scores are those printed at the end of each run; the validation F1 belongs to the weights selected by early stopping. The minutes are the training time on a Tesla T4, including the final prediction passes.
 
@@ -311,12 +290,12 @@ Table~\ref{tab:all_runs} lists every finished run. Scores are those printed at t
 \section{Design Decisions}\label{app:design}
 Table~\ref{tab:design} lists the main choices, why each was made, and the weakness we know of.
 
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \caption{Main design decisions, with the reason and the known weakness.}
 \label{tab:design}
 \footnotesize
-\begin{tabular}{r p{4.6cm} p{5.2cm} p{5.6cm}}
+\begin{tabular}{r p{4.0cm} p{5.2cm} p{5.6cm}}
 \toprule
 \# & Decision & Reason & Known weakness \\
 \midrule
@@ -333,32 +312,10 @@ Table~\ref{tab:design} lists the main choices, why each was made, and the weakne
 11 & Time cuts: 100\% cells use one seed; no ViT-Small sweep; pseudo-labelling only at 1\% and 10\% & Needed to finish by the deadline & No standard deviation at 100\%; ViT-Small may be under-tuned \\
 \bottomrule
 \end{tabular}
-\end{table*}
+\end{table}
 
 \section{Reproducibility}\label{app:repro}
-The code, the logs of every run and all figures and tables are in the public repository \url{https://github.com/ISHANT57/p21}; the results in this report are the tag \texttt{results-v1}. The code is released under the MIT licence, and automated tests run on every change. Table~\ref{tab:repro} lists the steps, each a script in the \texttt{scripts} folder of the repository.
-
-\begin{table}[t]
-\centering
-\caption{Steps to reproduce the results.}
-\label{tab:repro}
-\small
-\begin{tabular}{rll}
-\toprule
-Step & Script & Purpose \\
-\midrule
-1 & \texttt{download\_data.py} & get both versions, verify hashes \\
-2 & \texttt{make\_splits.py} & split and nested subsets \\
-3 & \texttt{build\_cache.py} & pack images into arrays \\
-4 & \texttt{run\_grid.py} & train the grid of runs \\
-5 & \texttt{evaluate.py} & metrics from predictions \\
-6 & \texttt{parse\_colab\_logs.py} & results from run logs \\
-7 & \texttt{eval\_from\_logs.py} & tables from run logs \\
-8 & \texttt{make\_figures.py} & report figures, tables \\
-9 & \texttt{make\_report\_tables.py} & extra report tables \\
-\bottomrule
-\end{tabular}
-\end{table}
+The code, the logs of every run and all figures and tables are in the public repository \url{https://github.com/ISHANT57/p21}; the results in this report are the tag \texttt{results-v1}. The code is released under the MIT licence, and automated tests run on every change. The steps are scripts in the \texttt{scripts} folder: \texttt{download\_data.py}, \texttt{make\_splits.py}, \texttt{build\_cache.py}, \texttt{run\_grid.py}, \texttt{evaluate.py} (or \texttt{parse\_colab\_logs.py} and \texttt{eval\_from\_logs.py} when only the run logs exist), \texttt{make\_figures.py} and \texttt{make\_report\_tables.py}.
 
 Every run stores its configuration, the library versions, the GPU, the git commit and its predictions next to its metrics, so a number in this report can be traced to a run. The fixed seeds control the labelled subsets, the initialisation, the shuffling and the augmentation. The split files carry hashes, and training stops if a file has changed, so no result can silently come from another split.
 

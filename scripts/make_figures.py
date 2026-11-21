@@ -112,7 +112,7 @@ def main() -> None:
                 mats[f"{fig.MODEL_LABEL[best]}, {fig.MODALITY_LABEL[mo]}"] = cm.set_index(cm.columns[0]).to_numpy()
         return mats
 
-    def table(df, name: str, caption: str, wide: bool = False):
+    def table(df, name: str, caption: str, wide: bool = False, font: str = r"\small"):
         """Write one table (.md and .tex), or return None if its data is missing. `wide`: a two-column float.
 
         Args:
@@ -120,11 +120,12 @@ def main() -> None:
             name: file name (without extension) for the table.
             caption: caption text used in the LaTeX version.
             wide: True if the table should span both columns of the report page.
+            font: LaTeX font-size command for the table body (a smaller size for tables with many columns).
         Returns:
             The list of written files, or None when df is None.
         """
         # No data means nothing to write (None, which the caller reports); otherwise write the .md and .tex files.
-        return None if df is None else tab.write_table(df, td, name, caption, wide)
+        return None if df is None else tab.write_table(df, td, name, caption, wide, font)
 
     # One row per output: (name used in the "skipped" message, whether its inputs exist, what builds it).
     # A row whose inputs do not exist is left out silently; a row that returns None is reported as skipped.
@@ -169,7 +170,7 @@ def main() -> None:
         # Table: pseudo-labelling results compared with the supervised teacher.
         ("semi-supervised table", True,
          lambda: table(tab.semi_supervised_table(groups, compare), "semi_supervised",
-                       "Pseudo-labelling against the supervised teacher, matched on seed.", wide=True)),
+                       "Pseudo-labelling against the supervised teacher, matched on seed.", wide=True, font=r"\footnotesize")),
         # Table: per-class F1 of the best model; needs both a best model and per_class.csv.
         ("per-class table", bool(best) and per_class is not None,
          lambda: table(tab.per_class_table(per_class, best, args.fraction),
