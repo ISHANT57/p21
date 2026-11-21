@@ -1,7 +1,7 @@
 # Project status (P21)
 
 **Last updated:** 2026-10-30
-**Current phase:** Phase 6 code done. All code that does not need a GPU is in place. Waiting on GPU runs: the baseline, tuning, the 54-run grid, and 30 pseudo-label students. Phase 7 (figures and the report skeleton) can start now.
+**Current phase:** Phase 6 code done. All code that does not need a GPU is in place. Waiting on GPU runs: the baseline, tuning, the 54-run grid, and 30 pseudo-label students. Phase 7 figure/table code and the report skeleton are in place; they need the real results to produce the final figures.
 
 The plan and its task lists are in [phases.md](phases.md). Update this file whenever a phase task finishes or a decision is made.
 
@@ -15,7 +15,7 @@ The plan and its task lists are in [phases.md](phases.md). Update this file when
 | 4 | Supervised label-efficiency runs (54) | ⏳ Tooling done; GPU runs pending | |
 | 5 | Pseudo-labelling (24 runs) | ⏳ Code done; GPU runs pending (they need the Phase 4 teachers) | |
 | 6 | Evaluation | ⏳ Code done; waiting for real runs | |
-| 7 | Figures, tables, README, report | ⬜ Not started | |
+| 7 | Figures, tables, README, report | ⏳ Figure/table code and report skeleton done; waiting for real results and the report text | |
 
 States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 
@@ -31,6 +31,14 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 | *(optional)* Band ablation | n/a | 0 |
 
 ## Change log
+
+### 2026-11-21: Phase 7 code and report skeleton (branch `feat/report`)
+- `src/eurosat_le/figures.py` and `scripts/make_figures.py` build, from `results/summary/eval/`: label-efficiency curves (macro-F1 and accuracy), RGB-vs-13-band gain per seed, pseudo-label gain per seed, confusion matrices, a per-class F1 heatmap. A figure whose inputs are missing is skipped with a message.
+- `src/eurosat_le/tables.py` writes the supervised grid, the semi-supervised grid and the per-class table as Markdown and LaTeX, best value per column in bold.
+- Model colours and markers are fixed across figures. The palette passes `validate_palette.js`; the green is below 3:1 contrast on the surface, so every line also has a marker and a direct label.
+- `report/`: IEEE two-column skeleton (`main.tex`, `references.bib`) that reads `results/figures` and `results/tables`. Every `\TODO{}` is text still to write.
+- Tested on synthetic tables only (`tests/test_figures.py`, 11 tests); nothing has been rendered from real runs yet.
+- Fixed a stray line at the top of `phases.md` and the outdated GitHub note below.
 
 ### 2026-10-30: Phase 6 code finished (branch `feat/evaluation`)
 - `scripts/evaluate.py` rebuilds every metric from the saved predictions:
@@ -102,7 +110,8 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 ## Open decisions (need the user / group)
 
 - [x] First local git commit for Phase 1 (`c19ab73` on `main`)
-- [ ] GitHub account, repository name and member access. **Nothing will be pushed until these are confirmed.**
+- [x] GitHub repository: https://github.com/ISHANT57/p21 (private), pushed on 2026-11-21
+- [ ] Give the group members access to the GitHub repository
 - [ ] Group members and who owns which area (see the CONTRIBUTING.md table)
 - [ ] Report template, page limit and deadline from the course
 - [x] Phase 5 scope: class-balanced variant added for the pretrained model at 1% (+6 runs, `*_plb`); decided on 2026-10-30
@@ -121,8 +130,8 @@ States: ⬜ Not started · ⏳ Next / in progress · ✅ Done · ⚠️ Blocked
 ## Next actions
 
 1. **Baseline (user, on Colab; no GitHub needed):** upload `dist/p21_code.zip` to Colab and run `notebooks/colab_setup.ipynb`; it covers setup, the smoke test and the ResNet-50 baseline. Then copy `results/runs/resnet50_rgb_100pct_seed0/` back here, or report the numbers.
-2. GitHub repo (account and repo name from the user) for the group workflow.
+2. Group access to the GitHub repo, and run the Colab setup notebook from it (Phase 2/3 Colab items).
 3. After the baseline: the tuning sweep (notebook section 6, 9 runs), then freeze `lr` in `configs/*.yaml` and commit.
 4. Main grid: 54 runs, which can be split across Colab, Kaggle and group members with `--shard`.
 5. Pseudo-label students: `run_grid.py --plan pl` (24), plus `--plan pl --balance --models resnet50 --fractions 0.01` (6); notebook section 7.
-6. Meanwhile, offline: the Phase 7 figure scripts (label-efficiency curves, RGB-vs-13-band gains, confusion matrices, per-class F1, pseudo-label gains) and the IEEE LaTeX report skeleton.
+6. Meanwhile, offline: write the parts of `report/main.tex` that do not need results (introduction, related work, data, method). After the runs: `evaluate.py`, then `make_figures.py`, then fill in the results text.

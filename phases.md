@@ -1,4 +1,4 @@
-okay so what next we do # Project phases (P21)
+# Project phases (P21)
 
 This file is the plan: what each phase delivers and how we know it is finished.
 Progress lives in [status.md](status.md). Tick a box here when a task is done, then add a line to status.md.
@@ -131,11 +131,14 @@ Grid: 3 models × 2 input types × 3 label fractions × 3 seeds = **54 runs** (+
 
 **Goal:** submission-ready repository and IEEE report.
 
-- [ ] Figures: label-efficiency curves (accuracy and macro-F1 against label fraction, log x-axis, one line per model, RGB and 13-band side by side), RGB-vs-13-band gain by fraction, confusion matrices, per-class F1 heatmap, pseudo-label gains
-- [ ] Tables: main supervised grid, semi-supervised grid, per-class F1 for the best model
-- [ ] LaTeX report (IEEE two-column, `report/`): abstract, introduction, related work, method, experimental setup, results, discussion, limitations, conclusion, references
+- [x] Figure code (`src/eurosat_le/figures.py`, `scripts/make_figures.py`): label-efficiency curves (macro-F1 and accuracy, RGB and 13-band side by side), RGB-vs-13-band gain per seed, pseudo-label gain per seed, confusion matrices, per-class F1 heatmap. Tested on synthetic tables.
+- [ ] Render the figures from the real results (needs Phases 4-5)
+- [x] Table code (`src/eurosat_le/tables.py`): supervised grid (macro-F1 and accuracy), semi-supervised grid, per-class F1 for the best model; Markdown and LaTeX output
+- [ ] Fill the tables from the real results (needs Phases 4-5)
+- [x] LaTeX report skeleton (IEEE two-column, `report/`): all sections, figure and table includes, bibliography
+- [ ] Write the report text: abstract, introduction, related work, method, setup, results, discussion, limitations, conclusion (every `\TODO{}` in `report/main.tex`)
 - [ ] README: final results summary, steps to reproduce every number
 - [ ] Repository clean-up: remove dead code, tests pass, CI green, licence, citation
 - [ ] Final check: a fresh clone + the README steps reproduce one baseline number
 
-**Done when:** the report PDF is built and the repository is pushed (after the account and repo are confirmed).
+**Done when:** the report PDF is built and the repository is pushed.
