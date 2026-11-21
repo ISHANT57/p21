@@ -11,6 +11,24 @@ Reference: Helber et al., *EuroSAT: A Novel Dataset and Deep Learning Benchmark 
 
 Plan and done criteria for each phase: [phases.md](phases.md). Current progress, findings and open decisions: [status.md](status.md).
 
+## Results (final)
+
+Training is finished: 51 runs (42 supervised, 9 pseudo-label students). Test macro-F1 in percent, mean ± std over seeds (`(n=1)` is one seed, so no spread):
+
+| | 1% labels | 10% labels | 100% labels |
+|---|---|---|---|
+| Scratch CNN, RGB | 74.6 ± 1.0 | 91.8 ± 0.3 | 97.5 (n=1) |
+| Scratch CNN, 13 bands | 78.1 ± 0.7 | 95.9 ± 0.2 | 98.8 (n=1) |
+| ResNet-50, RGB | 88.5 ± 0.0 | 96.4 ± 0.3 | 98.6 (n=1) |
+| ResNet-50, 13 bands | 89.4 ± 0.6 | 97.3 ± 0.4 | 99.1 (n=1) |
+| ViT-Small, RGB | 90.7 ± 1.0 | 97.4 ± 0.2 | 98.8 (n=1) |
+| ViT-Small, 13 bands | 91.2 ± 1.3 | 97.6 ± 0.2 | 98.9 (n=1) |
+
+- **Fewer labels:** the pretrained models lose 8 to 10 points from 100% to 1% of the labels, the scratch CNN 21 to 23.
+- **Extra bands:** +3.5 to +4.2 points for the scratch CNN, about +0.9 for ResNet-50, 0.5 or less for ViT-Small (at 1% within the spread between seeds).
+- **Pseudo-labelling (ResNet-50):** +2.3 to +2.4 points at 1% labels, +0.2 at 10% (two seeds). It is not done for ViT-Small, and only one scratch CNN student finished.
+- **Limits:** the Colab lanes kept only their logs, so there are no bootstrap intervals (except ViT-Small RGB vs 13 bands), no calibration, and per-class results exist only for ViT-Small at 1% and 10% labels. See [docs/EVALUATION.md](docs/EVALUATION.md) ("Results taken from logs"). Figures: `results/figures/`, tables: `results/tables/`, the evidence lines from every notebook: `results/logs/`. The report is in `report/`.
+
 ## Experiment design
 
 | Factor | Levels |
