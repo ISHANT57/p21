@@ -13,3 +13,14 @@
 | `per_class_f1_<pct>pct.png` | `per_class.csv` (supervised rows at `--fraction`, default 1.0) | `model`, `modality`, `class`, `f1_mean` | Test F1 for each class for every model and input type, as a heatmap with the values printed. |
 | `confusion_<pct>pct.png` | `confusion/<model>_<input>_<pct>pct_supervised.csv` | the 10 × 10 matrix | Row-normalised confusion matrices of the best model (highest mean test macro-F1 at `--fraction`), RGB and 13 bands side by side, averaged over seeds. Also drawn for 1% labels when that fraction exists. |
 
+## Tables
+
+Each table is written as `<name>.md` and `<name>.tex` in `results/tables/`.
+
+| Name | Source CSV | Columns used | What it shows |
+|---|---|---|---|
+| `supervised_f1` | `groups.csv` (supervised rows) | `model`, `modality`, `fraction`, `test_f1_mean`, `test_f1_std` | Test macro-F1 (%) as mean ± std over seeds; rows are model and input, columns are label fractions; the best value per column is bold. |
+| `supervised_acc` | `groups.csv` (supervised rows) | `model`, `modality`, `fraction`, `test_acc_mean`, `test_acc_std` | The same table for test accuracy. |
+| `semi_supervised` | `compare_supervised_vs_pl.csv`, `compare_supervised_vs_plb.csv` | `model`, `modality`, `fraction`, `f1_a`, `f1_b`, `delta_f1_mean`, `delta_f1_std`, `seeds_b_better`, `n_seeds` | Supervised teacher F1, student F1, the change in points (mean ± std) and the number of seeds where the student was better, for each model, input and fraction. |
+| `per_class_f1` | `per_class.csv` (supervised rows) | `class`, `f1_mean`, `f1_std` | Test F1 (%) per class, RGB and 13 bands, for the best model at `--fraction`. |
+
