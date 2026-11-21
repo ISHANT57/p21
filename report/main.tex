@@ -29,30 +29,60 @@ EuroSAT, Sentinel-2, label efficiency, multispectral, pseudo-labelling, transfer
 \end{IEEEkeywords}
 
 \section{Introduction}
-\TODO{Why labels are costly for land-use mapping; the three questions this report answers; a short list of contributions.}
+Land-use and land-cover maps built from satellite images need labelled examples, and labels are expensive: an expert has to inspect each patch. Sentinel-2 satellites, however, record far more than the red, green and blue (RGB) bands of an ordinary photograph. They measure 13 spectral bands, including near-infrared and short-wave infrared, which separate vegetation, water and built-up areas better than visible light does. Two ideas could therefore reduce the labelling effort: using the extra spectral bands, and using the many unlabelled images that are available anyway.
+
+We study these ideas on the EuroSAT benchmark~\cite{helber2019eurosat} and ask three questions.
+\begin{enumerate}
+\item \textbf{Label efficiency.} How quickly does test accuracy fall when only 10\% or 1\% of the training labels are available, for a small network trained from scratch, an ImageNet-pretrained convolutional network, and an ImageNet-pretrained vision transformer?
+\item \textbf{Spectral bands.} Does giving the same models all 13 bands, instead of RGB, help, and is the gain larger when labels are scarce?
+\item \textbf{Unlabelled data.} Does pseudo-labelling, which adds confident predictions on unlabelled training images as extra training labels, improve a supervised model trained on the same few labels?
+\end{enumerate}
+Every comparison uses the same fixed split, the same training budget rule and three random label subsets. Our contributions are: (i) a reproducible protocol with nested label subsets, leakage checks and a train-only normalisation; (ii) a way to start a pretrained RGB network from its ImageNet weights when 13 bands are given; (iii) a pseudo-labelling procedure whose confidence threshold is chosen on the validation set only; and (iv) paired, seed-matched comparisons with bootstrap intervals.
 
 \section{Related Work}
-EuroSAT~\cite{helber2019eurosat} provides 27{,}000 labelled Sentinel-2 patches in 10 classes, in RGB and 13 spectral bands.
-\TODO{Prior results on EuroSAT; transfer learning from ImageNet~\cite{he2016resnet,dosovitskiy2021vit}; pseudo-labelling~\cite{lee2013pseudo} and FixMatch~\cite{sohn2020fixmatch}.}
+EuroSAT~\cite{helber2019eurosat} provides 27{,}000 labelled Sentinel-2 patches in 10 classes, in RGB and in 13 spectral bands. The original paper trained convolutional networks on it and reported an overall accuracy of about 98.6\% for ResNet-50 on RGB with a large labelled training set; we use this as a sanity check for our own baseline.
+
+Convolutional networks pretrained on ImageNet~\cite{he2016resnet} and vision transformers~\cite{dosovitskiy2021vit} are the usual starting points when labels are few. Both expect three input channels, so using more than three bands requires changing the first layer; Section~\ref{sec:models} describes how we do this.
+
+Pseudo-labelling~\cite{lee2013pseudo} trains a model on its own confident predictions for unlabelled images. FixMatch~\cite{sohn2020fixmatch} adds a consistency loss between weakly and strongly augmented views of each unlabelled image. We use the simpler pseudo-labelling form and leave consistency methods as future work. \TODO{Add two or three more references on remote-sensing transfer learning and multispectral pretraining if the page limit allows.}
 
 \section{Data and Splits}
-\TODO{Dataset description (docs/DATA.md). Stratified 70/15/15 split with seed 42: 18{,}899 train, 4{,}051 validation, 4{,}050 test. Nested labelled subsets of 1\% (191), 10\% (1{,}890) and 100\% of the training images, 3 seeds. Normalisation statistics from the training split only. Note the band-order finding: B8A is stored last in the 13-band files.}
+EuroSAT has 27{,}000 patches of $64\times64$ pixels in 10 classes, with 2{,}000 to 3{,}000 images per class. We use two versions of it: an RGB version (8-bit JPEG renderings of bands B04, B03, B02) and a 13-band version (16-bit GeoTIFF). Both contain exactly the same patch identifiers, so one split serves both inputs and an RGB model and a 13-band model are always trained and tested on the same scenes.
+
+\textbf{Splits.} We split the data once, stratified by class, with a fixed seed: 70\% train (18{,}899 images), 15\% validation (4{,}051) and 15\% test (4{,}050). The validation and test sets are identical for every model, input type, label fraction and seed.
+
+\textbf{Label fractions.} From the training split we draw labelled subsets of 1\% (191 images), 10\% (1{,}890) and 100\% of the images, each with three seeds. Within a seed the subsets are nested ($1\% \subset 10\% \subset 100\%$), so adding labels never removes examples already in use, and each subset keeps the class proportions. The remaining training images form the \emph{unlabelled pool} used for pseudo-labelling; their labels are never read during training. Validation and test images are never used as unlabelled data. Scripts check for overlaps and store hashes of every split file, and training stops if a file has been changed.
+
+\textbf{Preprocessing.} Each channel is standardised with the mean and standard deviation of the training split only. Augmentation uses the same operations for 3 and 13 channels: random flips and $90^\circ$ rotations, and a random resized crop. Images stay at $64\times64$; models that need $224\times224$ input upsample on the GPU.
+
+\textbf{Band order.} The 13-band files carry no band names, and many code bases assume the standard Sentinel-2 order. We found that band B8A is stored \emph{last} (order B01--B12, then B8A) by checking that channels 3, 2, 1 correlate above 0.99 with the RGB channels, that channel 9 has the very low mean of cirrus band B10, and that channels 10 and 11 match the short-wave infrared bands. With the standard order, five bands would get the wrong name.
 
 \section{Method}
 \subsection{Models}
-\TODO{Scratch CNN (2.8M parameters), ResNet-50 (23.5M, ImageNet), ViT-Small (21.7M, ImageNet-21k). The 13-band first layer: RGB filters copied to B04/B03/B02, the mean filter for the other bands, all scaled by $3/13$ (docs/MODELS.md).}
+\label{sec:models}
+We compare three model families.
+\begin{itemize}
+\item \textbf{Scratch CNN} (2.8M parameters): a small ResNet-style network with four stages of two basic blocks (widths 32--256), trained from random initialisation on the $64\times64$ input.
+\item \textbf{ResNet-50}~\cite{he2016resnet} (23.5M): the ImageNet-1k weights \texttt{resnet50.a1\_in1k} from the \texttt{timm} library, fed images upsampled to $224\times224$.
+\item \textbf{ViT-Small}~\cite{dosovitskiy2021vit} (21.7M): the \texttt{timm} model \texttt{vit\_small\_patch16\_224.augreg\_in21k\_ft\_in1k}, pretrained on ImageNet-21k and fine-tuned on ImageNet-1k, also at $224\times224$.
+\end{itemize}
+\textbf{Using 13 bands with pretrained weights.} For 13-band input we replace the first layer (the first convolution of ResNet-50, the patch-embedding projection of ViT-Small). The red, green and blue filters of the pretrained layer are copied to the matching bands B04, B03 and B02. Each of the other ten bands receives the mean of the three RGB filters. All 13 filters are then multiplied by $3/13$, so that the summed first-layer response keeps about the size the network saw with three channels (every band is standardised to unit variance). The scratch CNN simply has 13 input channels. This initialisation is a design choice with limits: ImageNet pretraining knows nothing about near-infrared or short-wave-infrared bands, so the network must learn how to use them during fine-tuning, which is hard with only 191 labelled images.
 
 \subsection{Training}
-\TODO{AdamW~\cite{loshchilov2019adamw}, warm-up plus cosine schedule, mixed precision, early stopping on validation macro-F1. Budget rule: $\max(\text{epochs} \times \text{one pass},\ \text{min\_steps})$ optimiser steps. Learning rate chosen on validation only (tuning sweep, test set never used).}
+All runs use AdamW~\cite{loshchilov2019adamw} without weight decay on biases and normalisation layers, a linear warm-up followed by cosine decay, cross-entropy loss, mixed precision, and batches of 64. After every epoch the model is scored on the validation set; the weights with the best validation macro-F1 are kept, and training stops after 10 epochs without improvement. The test set is predicted once, with the selected weights.
+
+\textbf{Equal training budget.} Every run trains for $\max(\text{epochs}\times\text{one pass over its labelled set},\ \text{min\_steps})$ optimiser steps, with 30 epochs for the pretrained models and a floor of 1{,}500 steps (3{,}000 for the scratch CNN). With 100\% of the labels one pass is 295 steps. With 1\% or 10\% of the labels one pass is only 2 or 29 steps, so each epoch is stretched to 50 steps, drawn with replacement. The number of epochs, and so the number of validation checks, is therefore the same for every label fraction.
+
+\textbf{Learning rate.} We swept three learning rates on one cell (RGB, 10\% labels, seed 0), choosing by validation macro-F1 only; the test set was never evaluated. For the scratch CNN, $2\times10^{-3}$ was best among $\{10^{-3}, 2\times10^{-3}, 4\times10^{-3}\}$. For ResNet-50 the validation macro-F1 was 0.964, 0.967 and 0.969 for $2\times10^{-4}$, $5\times10^{-4}$ and $10^{-3}$; the differences are below 0.5 points, so we kept the default $5\times10^{-4}$. ViT-Small used its default $10^{-4}$ without a sweep. The chosen rate is used unchanged for every input type, label fraction and seed.
 
 \subsection{Pseudo-labelling}
-\TODO{Teacher = the supervised run; threshold $\tau$ chosen on validation as the smallest value with confident-prediction precision $\geq 95\%$; student trains on labelled plus pseudo-labelled images with the same budget (docs/SSL.md). Class-balanced variant.}
+A supervised run with 1\% or 10\% of the labels acts as the \emph{teacher}. After training it predicts the unlabelled pool (18{,}708 images at 1\%, 17{,}009 at 10\%). We choose the confidence threshold $\tau$ on the \emph{validation} set: the smallest $\tau$ in $\{0.50,\dots,0.99\}$ at which the teacher's validation predictions with confidence $\geq\tau$ are at least 95\% correct (if no $\tau$ reaches 95\%, the one with the highest precision is used). Every pool image with confidence $\geq\tau$ receives the teacher's class as its pseudo-label. A \emph{student}, a fresh model with the same architecture, starting weights and hyper-parameters, then trains on the labelled images plus the pseudo-labelled images under the same budget rule, with early stopping on the true validation labels. The true labels of pool images are read only after training, to measure how accurate the pseudo-labels were; nothing in training or selection uses them. Each student is compared with its own teacher (same model, input, fraction and seed).
 
 \subsection{Evaluation}
 Accuracy, macro-F1, per-class F1, expected calibration error, and paired comparisons matched on seed with 95\% paired bootstrap intervals over the test set. Every number is recomputed from saved predictions (\texttt{scripts/evaluate.py}).
 
 \section{Experimental Setup}
-\TODO{Hardware (GPU type, hours), software versions (requirements-lock.txt), number of runs finished, anything that was skipped.}
+All runs were trained on free-tier cloud GPUs (NVIDIA Tesla T4, 15 GB). As a sanity check, ResNet-50 on RGB with 100\% of the labels reaches 98.67\% test accuracy and 98.63\% macro-F1 (43 minutes), in line with the about 98.6\% reported for this benchmark~\cite{helber2019eurosat}. A 1\% or 10\% run of a pretrained model takes about 10 minutes. \TODO{State the final design after the runs finish: which cells were run with one seed instead of three (the 100\% runs, to fit the time limit), the models and fractions used for pseudo-labelling, which optional experiments were skipped, the total number of runs and GPU hours, and the software versions from \texttt{requirements-lock.txt}.}
 
 \section{Results}
 \subsection{Supervised label efficiency}
@@ -103,7 +133,11 @@ Accuracy, macro-F1, per-class F1, expected calibration error, and paired compari
 
 \section{Limitations}
 \begin{itemize}
-\item A random split can overestimate accuracy, because neighbouring patches look alike.
+\item A random split can overestimate accuracy, because EuroSAT patches come from a limited set of Sentinel-2 tiles and neighbouring patches look alike. We follow the protocol of the original paper; a spatially disjoint split would be stricter but would no longer match the benchmark.
+\item The RGB images are 8-bit compressed renderings, while the 13-band files hold raw 16-bit values, so part of any RGB-versus-13-band difference may come from quantisation and compression, not only from the extra bands.
+\item Pretrained weights come from RGB images. Extra bands start from copies of the RGB filters, and a model pretrained on multispectral data would avoid this limit.
+\item The band B10 (cirrus) carries almost no surface information (mean about 12 digital numbers) and is kept so that all 13 bands are used; we did not run an ablation without it.
+\item Students train on more images and for more steps than their teachers, so part of any pseudo-labelling gain may come from the extra compute. The teacher's weights were also selected on the validation set used to choose $\tau$, so its validation precision can be slightly optimistic; we report the measured accuracy of the pseudo-labels.
 \item Three seeds give wide uncertainty; we report per-seed differences and how many intervals exclude zero, not p-values.
 \item \TODO{GPU budget, skipped optional runs, single pretrained backbone for pseudo-labelling.}
 \end{itemize}
