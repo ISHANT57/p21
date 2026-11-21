@@ -108,11 +108,12 @@ def test_load_preds_cache(tmp_path):
     from eurosat_le.eval.evaluate import load_preds
 
     d = make_run(tmp_path / "runs", "resnet50", "rgb", 0.01, 0, 0.80)
-    load_preds.cache_clear()
+    load_preds.cache_clear()  # start empty, so earlier tests cannot affect this one
     first = load_preds(d)
     assert all(a is b for a, b in zip(first, load_preds(d)))  # second call hits the cache
     with pytest.raises(ValueError):
         first[0][0, 0] = 1.0  # shared arrays are read-only
+    # Rewrite the file with all-zero logits; the next load must return the new contents.
     f = d / "preds_test.npz"
     data = dict(np.load(f))
     data["logits"] = np.zeros_like(data["logits"])
@@ -120,7 +121,7 @@ def test_load_preds_cache(tmp_path):
     st = f.stat()
     os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))  # make sure the mtime changes
     assert not load_preds(d)[0].any()
-    load_preds.cache_clear()
+    load_preds.cache_clear()  # leave no cached arrays behind for other tests
 
 
 def test_evaluate_script_end_to_end(runs_dir, tmp_path):
