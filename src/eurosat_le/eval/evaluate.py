@@ -44,16 +44,86 @@ from eurosat_le.constants import CLASSES
 from eurosat_le.eval.metrics import classification_metrics
 from eurosat_le.ssl.pseudo_label import softmax
 
+# ======================================== CONCEPTS USED IN THIS FILE ========================================
+# saved predictions (preds_val.npz / preds_test.npz): per run, the logits, true labels and image ids saved by
+#   train/engine.py; all evaluation is rebuilt from them, nothing is retrained.
+# logits -> softmax -> argmax: logits are raw scores; softmax makes probabilities; the predicted class is the argmax.
+#   Confidence = the largest probability.
+# float16 / float32: logits were saved in half precision; they are cast back to float32 here. This can flip rare ties,
+#   hence the 1e-3 tolerance in check_against_logged.
+# validation vs test set: val is used for selection during training; test is the final, untouched score. Evaluation here
+#   reports both, comparisons use the test set.
+# sorting by sample id: predictions are reordered by id when loaded, so two runs can be compared image by image no
+#   matter how their loaders ordered the test set.
+# cache keyed by (path, mtime, size): load_preds keeps the arrays in memory after the first read; a rewritten file
+#   changes the key and is re-read. Cached arrays are read-only (setflags write=False) so one caller cannot corrupt
+#   another's results.
+# accuracy, macro-F1, confusion matrix: see eval/metrics.py. macro-F1 = mean of the per-class F1; confusion matrix rows
+#   = true class, columns = predicted class.
+# confusion matrix via bincount: each image is encoded as true*K + predicted (one number per matrix cell) and
+#   np.bincount counts them; K = 10 classes.
+# ECE (expected calibration error): how far confidence is from actual accuracy. Predictions are binned by confidence (15
+#   equal-width bins); ECE = sum over bins of (share of images in bin) x |accuracy in bin - mean confidence in bin|. 0 =
+#   perfectly calibrated.
+# calibration: a model is calibrated if, among predictions made with e.g. 80% confidence, about 80% are right.
+# paired comparison: two runs are paired when everything but the compared factor (model, modality, fraction, or variant)
+#   AND the seed match, so they share the labelled subset, the seed and the test images; then differences are not due to
+#   other changes.
+# variant: "supervised" for a plain run or the name_suffix of a run (e.g. "pl" for a pseudo-label student).
+# bootstrap / paired bootstrap / confidence interval: resample the test images with replacement (1,000 times), recompute
+#   macro-F1 for both runs on the SAME resample, and take the 2.5th and 97.5th percentiles of the differences as a 95%
+#   interval. It shows how much a difference could be luck.
+# delta_f1: macro-F1 of run b minus macro-F1 of run a. If the interval excludes 0 the difference is unlikely to be
+#   noise.
+# seed-level summary: over the 3 seeds results are reported as counts ("b better in k of 3 seeds", "interval excludes 0
+#   in k seeds") with mean/std/min/max, not as p-values.
+# sample std (ddof=1): standard deviation with n-1 in the denominator (pandas default); NaN if a group has one seed.
+# random Generator with fixed seed: np.random.default_rng(seed) makes the bootstrap intervals reproducible.
+# vectorised batch of resamples: _BOOT_BATCH = 100 resamples are drawn and scored at once with one rng.integers and one
+#   bincount, which is much faster than a Python loop and gives the same numbers.
+# seed-averaged, row-normalised confusion matrix: each run's matrix is divided by its row totals (share of each true
+#   class) and then averaged over seeds, so every seed counts equally.
+# pandas DataFrame / groupby / agg: tables of runs and results; groupby groups rows and agg computes
+#   mean/std/min/max/sum per group.
+# YAML / JSON: config.yaml (the run's settings) and metrics.json (metrics written at training time) are read here.
+
+# ======================================== Q&A ABOUT THIS FILE ========================================
+# Q: What is this file for?
+# A: It is the evaluation library (Phase 6): it finds finished runs, reloads their saved predictions, recomputes metrics
+#   (including ECE), builds paired comparisons with bootstrap intervals and seed-averaged confusion matrices.
+# Q: Where does it fit in the pipeline?
+# A: After training. train/engine.py writes preds_*.npz and metrics.json; this module reads them; scripts/evaluate.py is
+#   the command-line front end that uses these functions to make the report tables.
+# Q: What does it read and write?
+# A: It reads each run folder's config.yaml, metrics.json and preds_val/test.npz. It writes no files itself and retrains
+#   nothing; it returns DataFrames, dicts and arrays.
+# Q: Why recompute metrics from saved logits instead of trusting metrics.json?
+# A: It makes the evaluation independent of the training code path and lets us run new analyses (ECE, paired bootstrap,
+#   confusion matrices) without retraining; check_against_logged then confirms both agree.
+
 # K = number of classes (10); used as the size of confusion matrices.
 K = len(CLASSES)
 
 
+# Q: What does variant_of do?
+# A: It maps a run's name_suffix to a label: no suffix -> "supervised", otherwise the suffix itself (e.g. "pl", "pl2").
+# Q: Why is it needed?
+# A: Pseudo-label students share model/modality/fraction/seed with their teacher, so "variant" is the key that
+#   distinguishes them in comparisons.
 def variant_of(suffix: str | None) -> str:
     """Map a run's config `name_suffix` to a variant label; no suffix means the plain supervised run."""
     # An empty or missing suffix becomes "supervised"; any other suffix (e.g. "pl") is its own variant.
     return suffix or "supervised"
 
 
+# Q: What does load_runs return?
+# A: A DataFrame with one row per finished run that has test predictions: run_name, dir, model, modality, fraction,
+#   seed, variant and teacher.
+# Q: Why search for metrics.json and require preds_test.npz?
+# A: metrics.json is written last, so it marks a complete run; tuning runs have no test predictions
+#   (evaluate_test=False) and are left out, so they can never enter the evaluation.
+# Q: What if nothing qualifies?
+# A: It returns an empty DataFrame with no columns.
 def load_runs(runs_dir: Path) -> pd.DataFrame:
     """One row per finished run that has test predictions (tuning runs have none).
 
@@ -76,6 +146,18 @@ def load_runs(runs_dir: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# Q: What does load_preds do?
+# A: It loads preds_<split>.npz of a run and returns (logits float32 [N, K], labels [N], ids [N] as strings), all sorted
+#   by sample id.
+# Q: Why sort by id?
+# A: Different runs' data loaders may order the test set differently; sorting makes row i the same image in every run,
+#   which paired comparisons need.
+# Q: Why the cache, and why is the key (path, mtime, size)?
+# A: One evaluation reads the same file many times (metrics, confusion matrix, every pairing). Keeping arrays in memory
+#   saves time; including mtime and size means a re-written file is read again instead of returning stale data.
+# Q: Why are the returned arrays read-only?
+# A: They are shared between callers; making them read-only stops one caller's in-place change from silently altering
+#   the results of the others.
 def load_preds(run_dir: Path, split: str = "test") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load preds_<split>.npz and return (logits [N, K] float32, labels [N], ids [N] as str).
 
@@ -113,6 +195,13 @@ _PREDS_CACHE: dict[tuple[str, int, int], tuple[np.ndarray, np.ndarray, np.ndarra
 load_preds.cache_clear = _PREDS_CACHE.clear  # same name as lru_cache's method, for tests and notebooks
 
 
+# Q: What does this function compute?
+# A: The expected calibration error: bin images by confidence, and sum over bins (share of images in bin) x |accuracy in
+#   bin - average confidence in bin|. 0 means perfectly calibrated.
+# Q: Why is calibration worth measuring?
+# A: A model can be accurate yet over-confident; ECE shows whether its confidence can be trusted.
+# Q: Why np.minimum(..., n_bins - 1)?
+# A: A confidence of exactly 1.0 would give bin index n_bins, which does not exist; the minimum puts it in the last bin.
 def expected_calibration_error(probs: np.ndarray, labels: np.ndarray, n_bins: int = 15) -> float:
     """Expected calibration error of softmax probabilities `probs` [N, K] against integer `labels` [N].
 
@@ -136,6 +225,15 @@ def expected_calibration_error(probs: np.ndarray, labels: np.ndarray, n_bins: in
     return float(ece)
 
 
+# Q: What does macro_f1_fast do and how is it different from sklearn's f1_score?
+# A: It returns the same macro-F1 (zero_division=0, all 10 classes) but computes it from a bincount confusion matrix
+#   with F1 = 2TP / (predicted count + true count), so it is much faster.
+# Q: Why is speed important here?
+# A: The bootstrap calls a macro-F1 computation about 2,000 times per paired comparison; a slower sklearn call each time
+#   would add up.
+# Q: How is the confusion matrix built?
+# A: Each image is encoded as true*K + predicted, np.bincount counts the codes, and reshape(K, K) gives rows = true,
+#   columns = predicted.
 def macro_f1_fast(y: np.ndarray, p: np.ndarray) -> float:
     """Macro-F1 from integer arrays `y` (true) and `p` (predicted) using only a bincount confusion matrix.
 
@@ -153,6 +251,11 @@ def macro_f1_fast(y: np.ndarray, p: np.ndarray) -> float:
     return float(f1.mean())
 
 
+# Q: What does run_metrics return?
+# A: {"val": m, "test": m} where each m is the classification_metrics dict plus an "ece" entry, all recomputed from the
+#   run's saved logits.
+# Q: Why softmax before argmax if argmax of logits is the same?
+# A: The prediction is identical, but ECE needs the probabilities (confidence), so softmax is applied once and reused.
 def run_metrics(run_dir: Path) -> dict:
     """Recompute metrics for one run from its saved predictions.
 
@@ -171,6 +274,14 @@ def run_metrics(run_dir: Path) -> dict:
     return out
 
 
+# Q: What does check_against_logged do?
+# A: It compares the recomputed accuracy and macro-F1 (val and test) with the values in the run's metrics.json and
+#   returns a list of mismatch messages; an empty list means they agree.
+# Q: Why is there a tolerance of 1e-3?
+# A: Logits were saved as float16, so in rare ties the argmax can differ slightly from the training-time float32 result;
+#   the tolerance allows for that but still catches real bugs.
+# Q: Why is this check useful?
+# A: It proves the evaluation pipeline reproduces what training logged, so the reported numbers are trustworthy.
 def check_against_logged(run_dir: Path, recomputed: dict, tol: float = 1e-3) -> list[str]:
     """Compare with metrics.json written at training time (fp16 logits can flip rare ties).
 
@@ -189,6 +300,18 @@ def check_against_logged(run_dir: Path, recomputed: dict, tol: float = 1e-3) -> 
     return issues
 
 
+# Q: What does paired_bootstrap compute?
+# A: The difference in macro-F1 (run b minus run a) on the same test images, and a 95% bootstrap interval for it:
+#   returns (delta, ci_low, ci_high).
+# Q: What makes it "paired"?
+# A: Each resample draws N image indices with replacement and applies the SAME indices to both runs, so the comparison
+#   is on identical images and the luck of the draw cancels out.
+# Q: Why use a bootstrap rather than a simple difference?
+# A: A single difference does not show how reliable it is. Re-drawing the test set many times shows how much the
+#   difference varies; if the interval excludes 0, the gain is unlikely to be luck.
+# Q: Why a fixed seed and batches of resamples?
+# A: The fixed seed makes intervals reproducible. Processing 100 resamples at once (one rng.integers, one bincount) is
+#   faster than a plain loop and gives the same numbers, independent of the batch size.
 def paired_bootstrap(y, pred_a, pred_b, n_boot: int = 1000, seed: int = 0) -> tuple[float, float, float]:
     """Macro-F1(b) - macro-F1(a) on the same test images, with a 95% bootstrap interval.
 
@@ -234,6 +357,14 @@ def paired_bootstrap(y, pred_a, pred_b, n_boot: int = 1000, seed: int = 0) -> tu
 _BOOT_BATCH = 100
 
 
+# Q: What does _batched_macro_f1 do?
+# A: It computes macro-F1 for each of B resamples at once, from an array of codes [B, N] where code = true*K +
+#   predicted, and returns B values.
+# Q: How does one bincount handle all B resamples?
+# A: Row r is shifted by r*K*K, so the counts of each resample fall into their own block of K*K bins; the result is
+#   reshaped to B confusion matrices.
+# Q: What happens to a class that is absent from both truth and prediction?
+# A: Its F1 is set to 0 (np.divide with where=denom > 0), matching sklearn's zero_division=0.
 def _batched_macro_f1(codes: np.ndarray) -> np.ndarray:
     """Macro-F1 for each row of `codes` [B, N], where a code is `true * K + predicted`.
 
@@ -253,6 +384,17 @@ def _batched_macro_f1(codes: np.ndarray) -> np.ndarray:
     return f1.mean(1)  # macro-F1 = unweighted mean over the K classes
 
 
+# Q: What does compare do?
+# A: It finds pairs of runs that differ only in `factor` (a vs b) and share the other keys and the seed, and for each
+#   pair computes accuracy, macro-F1 for both, delta_f1 and its bootstrap interval; returns one row per pair.
+# Q: Why must everything else, including the seed, match?
+# A: Then the pair shares the labelled subset, initialisation seed and test images, so the difference can be blamed on
+#   the one factor changed.
+# Q: Why the assert on test ids and labels?
+# A: As a safety check that both runs were evaluated on exactly the same images; comparing different images would be
+#   meaningless.
+# Q: Which factors are allowed?
+# A: "model", "modality", "fraction" or "variant" (e.g. supervised vs pl).
 def compare(runs: pd.DataFrame, factor: str, a, b, n_boot: int = 1000) -> pd.DataFrame:
     """Paired comparisons where only `factor` differs (a -> b); all other keys and the seed match.
 
@@ -288,6 +430,13 @@ def compare(runs: pd.DataFrame, factor: str, a, b, n_boot: int = 1000) -> pd.Dat
     return pd.DataFrame(rows)
 
 
+# Q: What does summarise_comparison do?
+# A: It groups the per-seed rows from compare by cell and aggregates them: mean F1 of each side, mean/std/min/max of
+#   delta_f1, how many seeds favour b, and how many intervals exclude 0.
+# Q: Why report counts such as "b better in k of 3 seeds" instead of p-values?
+# A: With only 3 seeds a p-value would be unreliable; simple counts of consistent wins are honest and easy to read.
+# Q: Why can the std be NaN?
+# A: delta_f1_std uses the sample std (ddof=1), which is undefined for a single seed.
 def summarise_comparison(pairs: pd.DataFrame) -> pd.DataFrame:
     """Mean/std/min/max of per-seed deltas; how many seeds favour b; how many CIs exclude 0.
 
@@ -314,6 +463,11 @@ def summarise_comparison(pairs: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
 
 
+# Q: What does mean_confusion return?
+# A: A K x K matrix averaged over the given runs (usually the 3 seeds), rows = true class, row-normalised by default so
+#   each row shows the share of that class predicted as each class.
+# Q: Why normalise each run first and then average?
+# A: Every seed then counts equally, and the matrix is not dominated by a run with unusual class counts.
 def mean_confusion(run_dirs: list[Path], normalise: bool = True) -> np.ndarray:
     """Seed-averaged confusion matrix (rows = true class); row-normalised by default.
 
@@ -331,6 +485,14 @@ def mean_confusion(run_dirs: list[Path], normalise: bool = True) -> np.ndarray:
     return np.mean(mats, axis=0)
 
 
+# Q: What does top_confusions return?
+# A: The k largest off-diagonal cells of a confusion matrix as (true class, predicted class, rate), largest first; zero
+#   cells are dropped.
+# Q: Why blank out the diagonal?
+# A: The diagonal holds correct predictions; we only want the most common mistakes (which class is mistaken for which).
+# Q: How are flat positions turned back into classes?
+# A: np.argsort over the flattened array gives positions; i // K is the row (true class) and i % K the column (predicted
+#   class).
 def top_confusions(cm_norm: np.ndarray, k: int = 5) -> list[tuple[str, str, float]]:
     """The `k` largest off-diagonal cells as (true_class, predicted_class, rate), largest first.
 

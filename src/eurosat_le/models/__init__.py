@@ -48,6 +48,48 @@ from torch import nn
 from eurosat_le.constants import MS_RGB_IDX
 from eurosat_le.models.scratch_cnn import ScratchCNN
 
+# ======================================== CONCEPTS USED IN THIS FILE ========================================
+# model registry (ARCHS): a dict mapping a model name to its settings (timm model name, first-conv path, input size), so
+#   build_model can create any model from a string.
+# backbone: the main network that turns an image into class scores; here ScratchCNN, a ResNet50 or a ViT. Classifier
+#   wraps it.
+# pretrained weights / ImageNet: weights already learned on a large image data set; fine-tuning them on EuroSAT usually
+#   works better than random weights when labels are few.
+# timm: a library of ready-made image models (ResNet50, ViT ...) with pretrained weights, created by timm.create_model.
+# ResNet50: a 50-layer convolutional network with residual connections. ViT (Vision Transformer): cuts the image into
+#   patches and processes them with attention; "small" is a mid-size ViT, ViT-Tiny with patch 8 is the from-scratch one.
+# patch embedding (patch_embed.proj): the ViT's first layer, a convolution that turns each image patch into a vector; it
+#   plays the role of ResNet's conv1.
+# first-layer adaptation for 13 bands: pretrained models expect 3 input channels (RGB). For 13 Sentinel-2 bands the
+#   first conv is replaced by a 13-channel one whose filters are derived from the pretrained RGB filters
+#   (adapt_input_conv); all later layers keep their pretrained weights.
+# MS_RGB_IDX / Sentinel-2 bands B04, B03, B02: positions (3, 2, 1) of red, green, blue inside the 13-band image; R, G, B
+#   pretrained filters are copied there.
+# init mode "mean" vs "zero": "mean" gives the other 10 bands the mean RGB filter, then scales every filter by 3/13 to
+#   keep the first-layer response at its pretrained size; "zero" copies RGB filters unscaled and starts other bands at
+#   0, so the net begins exactly as the RGB model (ablation).
+# bilinear interpolation (F.interpolate): enlarges an image by smoothly mixing neighbouring pixels; used to upsample
+#   64x64 images to 224x224 for pretrained models, on the device, so the data pipeline stays at 64 px.
+# logits: raw class scores the model outputs; no softmax inside the model. num_classes = 10 EuroSAT classes; a fresh
+#   output layer replaces the ImageNet one.
+# parameters: the learned weights; count_params adds them all up (numel).
+# torch.no_grad: used when copying weights, because that is initialisation and not learning (no gradients tracked).
+# nn.Module: PyTorch base class of every network; assigning a layer as an attribute registers its weights.
+
+# ======================================== Q&A ABOUT THIS FILE ========================================
+# Q: What is this file for?
+# A: It builds the four possible networks by name (scratch_cnn, resnet50, vit_small, vit_scratch), wraps each so it
+#   accepts 64x64 images, and adapts pretrained first layers to 13 bands.
+# Q: Where does it fit in the pipeline?
+# A: train/engine.py `run` calls build_model once per run; scripts/smoke_test.py calls it for every model / input-type
+#   pair. The returned model is then trained by the engine.
+# Q: What does it read and write?
+# A: It writes nothing. For pretrained models timm downloads the ImageNet weights on first use. The result is a
+#   Classifier on CPU.
+# Q: Why load the 3-channel checkpoint first and widen the conv afterwards?
+# A: The published checkpoints only exist for 3 channels. Loading them unchanged and then replacing only the first conv
+#   keeps every other pretrained layer intact and makes the band handling explicit and documented.
+
 # Registry of the available architectures: the timm model name (if any), which layer takes the image
 # (`first_conv`, as a dotted path), the input resolution the model expects, and extra constructor arguments.
 ARCHS = {
@@ -60,6 +102,14 @@ ARCHS = {
 }
 
 
+# Q: What is Classifier?
+# A: A thin wrapper around any backbone that first upsamples the input batch to the size the backbone expects (e.g. 64
+#   -> 224 px), then calls the backbone and returns raw logits.
+# Q: Why upsample inside the model instead of in the data pipeline?
+# A: It keeps the data pipeline, files and memory at 64 px for every model; the resize runs on the GPU only when needed,
+#   so the loaders never produce 224 px images.
+# Q: What happens for the scratch CNN?
+# A: Its input size is already 64, so the batch passes through untouched.
 class Classifier(nn.Module):
     """Upsamples the 64x64 input on the device to the backbone's input size, then classifies.
 
@@ -72,12 +122,21 @@ class Classifier(nn.Module):
     same device as the batch, so the loaders never have to produce 224 px images.
     """
 
+    # Q: What does Classifier.__init__ store?
+    # A: The wrapped backbone and the image side length it expects. Because the backbone is an nn.Module attribute, its
+    #   weights are registered and trained.
     def __init__(self, backbone: nn.Module, input_size: int):
         """Store the wrapped network and the image size it expects (see the class docstring)."""
         super().__init__()
         # Keep both as attributes; assigning a Module attribute also registers its weights with PyTorch.
         self.backbone, self.input_size = backbone, input_size
 
+    # Q: What does Classifier.forward do?
+    # A: If the batch's width differs from input_size it enlarges it with bilinear interpolation, then returns
+    #   backbone(x): logits of shape (N, num_classes).
+    # Q: Why bilinear and align_corners=False?
+    # A: Bilinear is a smooth, standard resizing; align_corners=False is the usual PyTorch convention that keeps pixel
+    #   centres consistent.
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Resize the batch `x` (N, C, H, W) if needed and return the backbone's logits (N, num_classes)."""
         # Only resize when the image size differs from what the backbone wants (e.g. 64 -> 224 px).
@@ -87,6 +146,19 @@ class Classifier(nn.Module):
         return self.backbone(x)
 
 
+# Q: What does adapt_input_conv do?
+# A: It turns a pretrained RGB first-layer filter bank (out, 3, k, k) into one for in_chans channels (out, 13, k, k);
+#   for 3 channels it just returns a copy.
+# Q: Why is this needed?
+# A: A pretrained network expects 3 channels; our multispectral images have 13. We cannot feed 13 channels into a
+#   3-channel layer, and starting the new filters randomly would throw away what the pretrained filters know about
+#   colour.
+# Q: What do the "mean" and "zero" modes do, and why scale by 3 / in_chans?
+# A: Both copy R, G, B filters to the B04, B03, B02 channels. "mean" gives every other band the mean RGB filter and
+#   scales all filters by 3/13 so the summed response keeps the size the pretrained network saw with 3 channels; "zero"
+#   leaves other bands at 0 so the model starts exactly as the RGB model.
+# Q: Are the inputs modified?
+# A: No. It builds a new tensor; `weight` itself is never changed. An unknown mode raises ValueError.
 def adapt_input_conv(weight: torch.Tensor, in_chans: int, rgb_idx=MS_RGB_IDX, mode: str = "mean") -> torch.Tensor:
     """Widen a pretrained RGB filter bank (out, 3, k, k) to `in_chans` input channels.
 
@@ -127,6 +199,15 @@ def adapt_input_conv(weight: torch.Tensor, in_chans: int, rgb_idx=MS_RGB_IDX, mo
     return new
 
 
+# Q: What does _replace_first_conv do?
+# A: It swaps the first Conv2d of a model (found by a dotted path such as "conv1" or "patch_embed.proj") for a new one
+#   with in_chans input channels, filled from the pretrained filters, in place.
+# Q: Why keep kernel size, stride, padding and bias?
+# A: Only the number of input channels should change; everything else must match the pretrained design so the rest of
+#   the network still works.
+# Q: Why torch.no_grad() while copying?
+# A: Copying initial values is not learning, so no gradient tracking is needed. The bias does not depend on the input
+#   channels and is copied as is.
 def _replace_first_conv(model: nn.Module, path: str, in_chans: int, mode: str) -> None:
     """Swap the Conv2d at the dotted `path` (e.g. "conv1", "patch_embed.proj") for an `in_chans` one.
 
@@ -159,6 +240,18 @@ def _replace_first_conv(model: nn.Module, path: str, in_chans: int, mode: str) -
     setattr(parent, attr, new)
 
 
+# Q: What does build_model do?
+# A: It creates the named architecture (scratch_cnn, resnet50, vit_small or vit_scratch), widens the first conv for
+#   13-band input when the model is pretrained, and returns it wrapped in a Classifier.
+# Q: Why different branches for scratch models and pretrained models?
+# A: Scratch models are randomly initialised, so their first layer is created with in_chans channels directly.
+#   Pretrained models must load the 3-channel checkpoint first, and only then is the first layer replaced.
+# Q: Why pass img_size to the ViTs?
+# A: The ViT's position embeddings depend on image size, so the model must be told the size it will receive (224, or 64
+#   for vit_scratch).
+# Q: What are the inputs and the return value?
+# A: name, in_chans (3 or 13), num_classes (10), pretrained, init_mode, an optional input_size override, and **kwargs
+#   for the backbone. It returns the model on CPU; the caller moves it to the device.
 def build_model(name: str, in_chans: int = 3, num_classes: int = 10, pretrained: bool = True,
                 init_mode: str = "mean", input_size: int | None = None, **kwargs) -> Classifier:
     """Build the named architecture (a key of `ARCHS`) wrapped in a `Classifier`.
@@ -199,6 +292,9 @@ def build_model(name: str, in_chans: int = 3, num_classes: int = 10, pretrained:
     return Classifier(backbone, size)
 
 
+# Q: What does count_params return and what is it used for?
+# A: The total number of weights in the model (sum of numel over all parameters). engine.run prints it, and stores it in
+#   metrics.json as n_params, to compare model sizes (about 2.8M for the scratch CNN).
 def count_params(model: nn.Module) -> int:
     """Total number of weights (parameters) in `model`, e.g. about 2.8 million for the scratch CNN."""
     # numel() = number of elements in one parameter tensor; add them all up.

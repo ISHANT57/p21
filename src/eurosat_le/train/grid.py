@@ -22,6 +22,39 @@ from eurosat_le.constants import LABEL_FRACTIONS, REPO_ROOT, SUBSET_SEEDS
 # TrainConfig describes one run; load_config builds one from a YAML file plus overrides.
 from eurosat_le.train.config import TrainConfig, load_config
 
+# ======================================== CONCEPTS USED IN THIS FILE ========================================
+# experiment grid: the list of every (model x input type x label fraction x seed) combination that is trained; main grid
+#   = 3 x 2 x 3 x 3 = 54 runs.
+# itertools.product: builds every combination of several lists (a Cartesian product); the LAST list varies fastest, the
+#   FIRST is the outer loop.
+# seed-first ordering: seed is the outermost loop, so seed 0 of every cell finishes before seed 1 starts; a cut-off
+#   session still covers the whole grid.
+# label fraction / seed: share of training labels assumed known (1%, 10%, 100%); the seed picks which images those are
+#   and the initialisation.
+# modality: "rgb" (3 bands) or "ms" (all 13 Sentinel-2 bands).
+# learning rate (lr) tuning: trying a few lr values per model and keeping the one with the best VALIDATION macro-F1.
+# validation vs test set: tuning may only look at validation; tuning runs set evaluate_test=False so the test set stays
+#   untouched (no test leakage).
+# name_suffix: text appended to run_name (here "tune_lr<lr>") so tuning runs never overwrite grid runs.
+# Phase 5 / pseudo-label students (PL_MODELS, PL_FRACTIONS): the subset of the grid (scratch CNN + ResNet50, 1% and 10%
+#   labels) for which self-training students are built.
+# frozen hyper-parameters (configs/<model>.yaml): each model's settings are fixed once, so they are identical across
+#   input types, fractions and seeds.
+
+# ======================================== Q&A ABOUT THIS FILE ========================================
+# Q: What is this file for?
+# A: It builds the lists of TrainConfig objects for the main supervised grid and for the learning-rate tuning sweep. It
+#   does not train anything.
+# Q: Where does it fit in the pipeline?
+# A: scripts/run_grid.py imports these lists and runs each config through train.engine.run; it also uses PL_MODELS /
+#   PL_FRACTIONS to plan the pseudo-label students.
+# Q: What does it read and write?
+# A: It reads configs/<model>.yaml (through load_config) and the constants LABEL_FRACTIONS and SUBSET_SEEDS. It writes
+#   no files.
+# Q: Why is the learning rate tuned on only one cell?
+# A: To keep the sweep cheap: RGB, 10% labels, seed 0 is a representative cell; the chosen value is then frozen in the
+#   YAML for all other cells.
+
 # Folder holding one YAML file per model with its frozen hyper-parameters.
 CONFIG_DIR = REPO_ROOT / "configs"
 # The three models compared in the main study.
@@ -44,6 +77,18 @@ TUNE_LRS = {
 TUNE_CELL = {"modality": "rgb", "fraction": 0.1, "seed": 0}
 
 
+# Q: What does main_grid do?
+# A: It returns one TrainConfig for every combination of seed, model, modality and label fraction (54 with the
+#   defaults), each starting from its model's YAML file.
+# Q: Why is the list ordered seed-first?
+# A: So that if the compute session is interrupted, every cell already has its seed-0 result; also run_grid.py's --shard
+#   k/n takes every n-th entry, so the order decides which runs a shard gets.
+# Q: What are the inputs and the return value?
+# A: Inputs are the grid axes and optional overrides applied to every run (e.g. from --set); output is a list of
+#   TrainConfig objects.
+# Q: Why load the YAML for every run instead of setting hyper-parameters here?
+# A: It keeps the hyper-parameters frozen in one visible place per model, so changing a cell (fraction, modality, seed)
+#   cannot accidentally change the learning rate.
 def main_grid(models=MAIN_MODELS, modalities=MODALITIES, fractions=LABEL_FRACTIONS, seeds=SUBSET_SEEDS,
               **overrides) -> list[TrainConfig]:
     """All cells, ordered seed-first so that seed 0 of every cell finishes before seed 1 starts.
@@ -65,6 +110,16 @@ def main_grid(models=MAIN_MODELS, modalities=MODALITIES, fractions=LABEL_FRACTIO
     ]
 
 
+# Q: What does tune_grid do?
+# A: It builds the learning-rate sweep: for each model, one config per candidate lr in TUNE_LRS, all on the RGB / 10% /
+#   seed 0 cell.
+# Q: Why do tuning runs set evaluate_test=False?
+# A: So that the test set is never used to choose a hyper-parameter; choosing on the test set would make the final test
+#   score optimistic (leakage).
+# Q: Why the suffix tune_lr<lr>?
+# A: It makes a unique run name, so tuning runs never collide with, or overwrite, grid runs.
+# Q: How can the cell be changed?
+# A: Through **overrides; {**TUNE_CELL, **overrides} lets the caller's values beat the default tuning cell.
 def tune_grid(models=MAIN_MODELS, **overrides) -> list[TrainConfig]:
     """LR sweep on one cell (RGB, 10% labels, seed 0), selected on validation macro-F1 only.
 

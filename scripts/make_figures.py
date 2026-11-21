@@ -42,10 +42,68 @@ from eurosat_le import figures as fig
 from eurosat_le import tables as tab
 from eurosat_le.constants import RESULTS_DIR
 
+# ======================================================================
+# CONCEPTS USED IN THIS FILE
+# ======================================================================
+# evaluation CSV files: groups.csv (mean / std over seeds per setting), per_class.csv (per-class F1), compare_*.csv
+#   (summaries of paired comparisons), compare_*_pairs.csv (one row per seed) and confusion/*.csv. All are written
+#   earlier by scripts/evaluate.py (or eval_from_logs.py).
+# label fraction: the share of the labelled training images used (0.01, 0.1, 1.0). --fraction picks the one shown in the
+#   per-class views and the confusion matrices.
+# macro-F1 and accuracy: macro-F1 averages the per-class F1 with equal weight; accuracy is the share of correct
+#   predictions. The label-efficiency figure and the supervised tables show both.
+# mean ± std over seeds: the average over the repeated runs (seeds) and their sample standard deviation. '(n=1)' marks a
+#   single seed. The captions say 'over 3 seeds'.
+# paired comparison (pairs): two runs with the same seed that differ in one factor; the per-seed difference in macro-F1
+#   is plotted by rgb_vs_ms_gain and pseudo_label_gain.
+# pseudo-labelling (pl, plb): a teacher labels unlabelled images and a student trains on them; 'plb' is the
+#   class-balanced version. The files compare_supervised_vs_pl / _plb compare student with teacher.
+# confusion matrix and row normalisation: a table of true class (rows) against predicted class (columns); dividing each
+#   row by its total makes each row sum to 100 percent, so classes of different size compare fairly.
+# per-class F1 heatmap: a coloured grid with one row per land-cover class and one column per model / input.
+# best model: the model with the highest mean test macro-F1 (averaged over RGB and 13-band) at --fraction; found by
+#   tables.best_model and used for the confusion matrices and the per-class views.
+# DataFrame and CSV: a pandas DataFrame is a table in memory; pd.read_csv loads a CSV (plain-text table) into one.
+# table-driven outputs list: 'outputs' holds one tuple per figure or table (name, inputs exist?, function that builds
+#   it) and a single loop runs them, instead of repeating the same if/print code for each one.
+# lambda with a default argument (lambda f=f: ...): a small unnamed function; 'f=f' freezes the current loop value,
+#   otherwise every lambda would see the last f. Used for the confusion-matrix rows.
+# Markdown (.md) and LaTeX (.tex) tables: write_table saves each table in both formats; the .tex file uses booktabs
+#   rules and is included in the report. In captions '\%' is a LaTeX-escaped percent sign and $\pm$ is a math
+#   plus-minus.
+# argparse and RawDescriptionHelpFormatter: argparse reads command-line options; the formatter keeps the docstring's
+#   line breaks when --help prints it.
+# SystemExit: raising it stops the script with a message and a non-zero exit code. Used when groups.csv is missing.
+# format spec ':g' in CONF_GROUP: prints 1.0 as '1' and 100.0 as '100', so the name matches the file names written by
+#   evaluate.py (for example resnet50_rgb_1pct_supervised).
+
+# ======================================================================
+# Q&A ABOUT THIS FILE (file-level viva questions)
+# ======================================================================
+# Q: What is this file for?
+#    A: It is the last step (Phase 7) that turns the evaluation CSV files into the report figures (PNG) and tables (.md
+#       and .tex). It computes no scores itself.
+# Q: Where does it fit in the pipeline, and how is it run?
+#    A: After scripts/evaluate.py (or eval_from_logs.py) has written results/summary/eval/. Run python
+#       scripts/make_figures.py [--eval-dir ...] [--figures-dir ...] [--tables-dir ...] [--fraction 0.01].
+# Q: What does it read and write?
+#    A: It reads groups.csv (required) and per_class.csv, compare_*.csv, compare_*_pairs.csv and confusion/*.csv
+#       (optional). It writes PNG files into results/figures and .md/.tex tables into results/tables.
+# Q: What happens when some inputs are missing?
+#    A: A figure or table whose input file is missing is left out or reported as 'skipped ... no data yet', so the
+#       script works on partial results. Only a missing groups.csv stops it.
+
 # Must match scripts/evaluate.py:group_name for a supervised group (file stem of confusion/<stem>.csv).
 CONF_GROUP = "{model}_{modality}_{pct:g}pct_supervised"
 
 
+# Q: What does this function do?
+#    A: It reads a CSV file into a DataFrame, or returns None if the file does not exist.
+# Q: Why return None instead of raising an error?
+#    A: Most inputs are optional. The caller turns None into 'skip this output', so the script can run on a partial set
+#       of results.
+# Q: What are the input and output?
+#    A: Input: a Path. Output: a DataFrame or None.
 def read(path: Path) -> pd.DataFrame | None:
     """Read a CSV, or return None if the file does not exist (the callers then skip that output).
 
@@ -58,6 +116,18 @@ def read(path: Path) -> pd.DataFrame | None:
     return pd.read_csv(path) if path.exists() else None
 
 
+# Q: What does main do?
+#    A: It reads the options and the CSV files, finds the best model, builds the list of figures and tables to make,
+#       runs each builder and finally prints the paths of the written files.
+# Q: Why is groups.csv mandatory but the other files are not?
+#    A: Every figure and table needs groups.csv (it also decides the best model), so without it there is nothing useful
+#       to draw. The other files only feed individual outputs.
+# Q: Why is the work organised as a list of rows instead of a long series of if statements?
+#    A: Each row has the same form, one loop handles skipping, building and reporting, and adding a new figure or table
+#       needs only one new row.
+# Q: What is the 'best model' used for?
+#    A: The confusion matrices, the per-class heatmap and the per-class table show one model only, chosen as the one
+#       with the highest mean test macro-F1 at --fraction.
 def main() -> None:
     """Build all figures and tables that the available evaluation CSVs allow, then list what was written."""
     # Build the command-line parser; the module docstring is shown as the help text, with its layout kept.
@@ -92,6 +162,15 @@ def main() -> None:
     rgb_vs_ms = read(ev / "compare_rgb_vs_ms_pairs.csv")
     rgb_vs_ms = pd.DataFrame() if rgb_vs_ms is None else rgb_vs_ms
 
+    # Q: What does this function do?
+    #    A: For the best model at label fraction f it loads the RGB and the 13-band confusion matrix CSV (when they
+    #       exist) and returns a dictionary from panel title to the 10 x 10 matrix.
+    # Q: Why is cm.set_index(cm.columns[0]).to_numpy() needed?
+    #    A: The first CSV column holds the class names. Making it the index leaves only the 10 x 10 numbers, which is
+    #       what the figure function expects.
+    # Q: Why is this a nested function?
+    #    A: It uses variables of main (ev, best) and is called once per fraction, so defining it inside main is simpler
+    #       than passing them in.
     def confusion_mats(f: float) -> dict:
         """Panels for the best model at fraction `f`: title -> [10, 10] matrix, for the inputs that have a CSV.
 
@@ -112,6 +191,14 @@ def main() -> None:
                 mats[f"{fig.MODEL_LABEL[best]}, {fig.MODALITY_LABEL[mo]}"] = cm.set_index(cm.columns[0]).to_numpy()
         return mats
 
+    # Q: What does this function do?
+    #    A: It writes one table as .md and .tex through tab.write_table, or returns None if the table could not be built
+    #       because its data is missing.
+    # Q: Why are caption, wide and font arguments needed?
+    #    A: The caption goes into the LaTeX file; wide=True makes the table span both columns of the report page; font
+    #       sets a smaller LaTeX size for tables with many columns.
+    # Q: What does it return?
+    #    A: The list of written file paths, or None, which main reports as 'skipped ... no data yet'.
     def table(df, name: str, caption: str, wide: bool = False, font: str = r"\small"):
         """Write one table (.md and .tex), or return None if its data is missing. `wide`: a two-column float.
 

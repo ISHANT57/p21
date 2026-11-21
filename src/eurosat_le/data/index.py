@@ -25,7 +25,44 @@ import pandas as pd
 # Class list and label mapping, dataset descriptions (folder/extension) and the default raw folder.
 from eurosat_le.constants import CLASS_TO_IDX, CLASSES, DATASETS, RAW_DIR
 
+# ====================================================================================================
+# CONCEPTS USED IN THIS FILE
+# - Sample id: a text name for one image that does not depend on the file type, such as 'AnnualCrop/AnnualCrop_1'
+#   (class folder / file name without extension). RGB file = <id>.jpg, MS file = <id>.tif.
+# - Modality: the type of input image: 'rgb' (3-band JPEG) or 'ms' (13-band GeoTIFF). It only decides which folder and
+#   extension are scanned.
+# - EuroSAT classes and labels: the 10 land-use classes; the integer label of an image is the position of its class
+#   name in constants.CLASSES (CLASS_TO_IDX).
+# - Deterministic index / sort key: directory listing order differs between operating systems, so ids are sorted by
+#   (class index, numeric file number). The resulting table, and any split built from it, is identical on every
+#   machine.
+# - Numeric vs text sorting: as text, 'x_10' would sort before 'x_2'; _sort_key converts the number to an int so that
+#   _2 comes before _10.
+# - DataFrame (pandas): a table with named columns; build_index returns one with columns id, class, label.
+# - Set comparison: sets are unordered collections; '!=' tests whether two sets contain the same ids and '^' gives ids
+#   found in only one of them. Used to compare the RGB and MS folders.
+# ====================================================================================================
+#
+# FILE-LEVEL Q&A
+# Q: What is this file for?
+# A: It lists every EuroSAT image as a sample id with its class and integer label, in a fixed order, and can check
+#    that the RGB and MS folders hold the same images.
+# Q: Where does it fit in the pipeline?
+# A: After the download. scripts/make_splits.py calls build_index to get the table that data.splits turns into
+#    split.csv, and check_modalities_match to verify the two input types.
+# Q: What does it read and write?
+# A: It reads only file names in data/raw/EuroSAT_RGB and/or EuroSAT_MS (it never opens the images) and writes
+#    nothing.
 
+
+# Q: What does this function do?
+# A: It walks through the 10 class folders and returns an id '<Class>/<file stem>' for every file with the wanted
+#    extension.
+# Q: Why does it compare extensions in lowercase and ignore other files?
+# A: So '.JPG' counts as '.jpg', and stray files such as thumbnails or .DS_Store do not become samples.
+# Q: What are the inputs and what does it return?
+# A: folder (e.g. data/raw/EuroSAT_RGB) and ext (e.g. '.jpg'). It returns an unsorted list of id strings, and raises
+#    FileNotFoundError if a class folder is missing.
 def _scan(folder: Path, ext: str) -> list[str]:
     """Return unsorted "<Class>/<stem>" ids for all files with extension `ext` in each class folder.
 
@@ -48,6 +85,12 @@ def _scan(folder: Path, ext: str) -> list[str]:
     return ids
 
 
+# Q: What does this function do?
+# A: It turns an id like 'AnnualCrop/AnnualCrop_1' into the pair (class index, file number) that is used for sorting.
+# Q: Why is the file number converted to an int?
+# A: Sorting the text would put '_10' before '_2'. Sorting numbers gives the natural order.
+# Q: What are the inputs and what does it return?
+# A: sample_id (string). It returns a tuple of two ints.
 def _sort_key(sample_id: str) -> tuple[int, int]:
     """Sort key (class index, numeric file suffix); numeric so that _2 sorts before _10.
 
@@ -60,6 +103,16 @@ def _sort_key(sample_id: str) -> tuple[int, int]:
     return CLASS_TO_IDX[cls], int(stem.rsplit("_", 1)[1])
 
 
+# Q: What does this function do?
+# A: It builds the table of all samples with columns id, class and label, sorted by class and file number.
+# Q: Why is the table sorted explicitly?
+# A: The order of files from the disk differs between operating systems. A fixed order makes the table, and the random
+#    split made from it, identical for everybody.
+# Q: What are the inputs and what does it return?
+# A: raw_dir (folder holding EuroSAT_RGB / EuroSAT_MS) and modality ('rgb' or 'ms'). It returns a pandas DataFrame.
+# Q: Does the modality change the ids?
+# A: No. It only selects which folder and extension are scanned; both give the same ids, which is why one split file
+#    serves both input types.
 def build_index(raw_dir: Path = RAW_DIR, modality: str = "rgb") -> pd.DataFrame:
     """Return a DataFrame (id, class, label) sorted by class then file number.
 
@@ -82,6 +135,15 @@ def build_index(raw_dir: Path = RAW_DIR, modality: str = "rgb") -> pd.DataFrame:
     return df
 
 
+# Q: What does this function do?
+# A: It checks that the RGB folder and the MS folder contain exactly the same sample ids, and raises RuntimeError if
+#    not.
+# Q: Why is this check needed?
+# A: One split.csv is used for both input types. If an image existed in only one version, the two models would not see
+#    the same scenes and the split would not apply to both.
+# Q: What are the inputs and what does it return?
+# A: raw_dir (folder with both datasets). It returns None; the error message counts the ids found in only one folder
+#    and shows up to 5 examples.
 def check_modalities_match(raw_dir: Path = RAW_DIR) -> None:
     """Raise if the RGB and MS folders do not contain exactly the same sample ids.
 

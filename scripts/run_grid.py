@@ -53,7 +53,70 @@ from eurosat_le.ssl.self_training import student_config, train_student
 # The grid definitions: default models/inputs/fractions per plan, the tuning learning rates and the grid builders.
 from eurosat_le.train.grid import MAIN_MODELS, MODALITIES, PL_FRACTIONS, PL_MODELS, TUNE_LRS, main_grid, tune_grid
 
+# ==================== CONCEPTS USED IN THIS FILE ====================
+# - argparse: standard-library module that reads command-line options (--plan, --models, --shard, ...) into an object;
+#   used in main().
+# - experiment grid: all combinations of model x input type x label fraction x seed. The main plan is 3 x 2 x 3 x 3 = 54
+#   supervised runs; the grid builders (main_grid, tune_grid) list them as TrainConfig objects.
+# - plan (main / tune / pl): main = the supervised grid; tune = learning-rate sweep (3 rates per model on RGB, 10%
+#   labels, seed 0, validation only); pl = pseudo-label students, one per teacher cell.
+# - learning-rate sweep (tuning): training the same model with several learning rates and picking the best on validation
+#   macro-F1; tuning runs never evaluate the test set.
+# - teacher / student, pseudo-label: a student (plan pl) is trained from a finished supervised teacher; if the teacher
+#   is not finished the student is 'waiting' and skipped in this invocation.
+# - tau and target precision: the confidence threshold for accepting pseudo-labels and the validation precision it must
+#   reach (--target-precision, default 0.95); passed on to train_student.
+# - --balance and name_suffix: class-balanced pseudo-label selection; the students then get the suffix 'plb' (via
+#   overrides.setdefault) so they do not overwrite the default students.
+# - shard k/n: a way to split the list of runs across n machines: shard k takes every n-th run starting at index k
+#   (cfgs[k::n]); together the shards cover every run exactly once.
+# - resume / skip finished runs: a run is finished when its metrics.json exists (written last); finished runs are
+#   skipped, so after a Colab disconnect the same command continues where it stopped.
+# - --dry-run: only prints the status of every run ([x] done, [w] waiting for teacher, [ ] to do) and trains nothing.
+# - --max-hours (time budget): no new run is started after this many hours; checked only between runs because a started
+#   run is never interrupted (Kaggle sessions end after 12 h).
+# - --set KEY=VALUE overrides: parse_set turns them into typed values that replace TrainConfig fields in every run.
+# - seeds (SUBSET_SEEDS): 0, 1, 2 by default: independent labelled-subset draws; results are later averaged over them.
+# - try / except / finally, traceback: a failure in one run is caught, printed and logged to results/runs/_failed.log,
+#   then the grid continues; finally always frees memory.
+# - GPU memory release (gc.collect, torch.cuda.empty_cache): frees Python objects and cached GPU memory after each run,
+#   so the next run does not run out of memory.
+# - exit code: raise SystemExit(1) at the end if any run failed, so calling scripts notice the failure.
+# - closure / nested function: finished() is defined inside main() and uses RUNS_DIR from the module.
+# - list slicing and comprehensions: cfgs[k::n] selects the shard; the done / todo / waiting lists are built with list
+#   comprehensions.
+# - if __name__ == '__main__': runs main() only when executed as a script, not when imported.
+# ====================================================================
+#
+# ---- Q&A: THIS FILE ----
+# Q: What is this file for?
+# A: It runs many training cells one after another (the whole 54-run grid, the learning-rate sweep or the pseudo-label
+#    students), with resume, sharding and a time budget. It is the main driver for Colab/Kaggle sessions.
+# Q: What does it read and write?
+# A: It reads the YAML configs in configs/ (through the grid builders) and the existing run folders in results/runs/. It
+#    writes one run folder per cell (through run / train_student) and appends errors to results/runs/_failed.log.
+# Q: How is it run?
+# A: python scripts/run_grid.py --plan main|tune|pl [--models ...] [--modalities ...] [--fractions ...] [--seeds ...]
+#    [--shard k/n] [--max-hours H] [--dry-run] [--set key=value ...].
+# Q: Where does it fit in the pipeline?
+# A: After the data, splits and cache exist; before collect_results.py and evaluate.py, which read the run folders it
+#    produced.
 
+
+# ---- Q&A: main ----
+# Q: What does main() do?
+# A: It expands the chosen plan into a list of configs, keeps this shard's part of the list, sorts it into done / to do
+#    / waiting, prints a status line, and (unless --dry-run) trains the unfinished runs one by one, logging failures and
+#    respecting the time budget.
+# Q: Why wrap each run in try/except and free memory in finally?
+# A: One broken cell should not waste a whole GPU session: the error is logged and the grid goes on. Releasing memory
+#    after every run prevents out-of-memory errors in the next one.
+# Q: Why build the pseudo-label students from the planned teacher configs?
+# A: So the plan can be listed (and sharded) before any teacher exists; at run time a student is trained only if its
+#    teacher has finished.
+# Q: Why is the time budget checked only between runs?
+# A: A run that has started is never interrupted, so a result is never left half-written; the budget only stops new runs
+#    from starting.
 def main() -> None:
     """Expand the chosen plan into runs, pick this shard's share, and train every run that is not finished yet.
 
@@ -117,6 +180,14 @@ def main() -> None:
     k, n = map(int, args.shard.split("/"))
     cfgs = cfgs[k::n]  # shard k of n: every n-th run starting at index k
 
+    # ---- Q&A: finished ----
+    # Q: What does finished() do?
+    # A: It returns True if the run with the given name has a metrics.json file in results/runs/<name>/.
+    # Q: Why is metrics.json the marker of a finished run?
+    # A: The training engine writes it last, so if it exists everything else was written; a crashed run has no
+    #    metrics.json and is simply started again.
+    # Q: What are the input and the return value?
+    # A: Input: a run name (string). Returns a bool.
     def finished(name):
         """Return True if the run called `name` has completed (its metrics.json exists)."""
         # metrics.json is the last file a run writes, so it marks a completed run

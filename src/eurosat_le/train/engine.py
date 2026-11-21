@@ -73,10 +73,80 @@ from eurosat_le.ssl.pseudo_label import load_pseudo_labels, quality
 from eurosat_le.train.config import TrainConfig
 from eurosat_le.utils import seed_everything
 
+# ======================================== CONCEPTS USED IN THIS FILE ========================================
+# epoch: one round of training (a number of optimiser steps) followed by one validation check. cfg.epochs is the maximum
+#   number of rounds.
+# batch / step: a batch is a group of images processed together; each batch gives one optimiser step (one weight
+#   update). total_steps = epochs x steps_per_epoch.
+# training budget rule: total steps = max(epochs x one pass, min_steps); small label fractions get stretched epochs
+#   (sampling with replacement); decided in TrainConfig.resolve_steps_per_epoch.
+# logits: the raw, unnormalised scores the network outputs, one per class. The predicted class is the argmax (index of
+#   the largest logit).
+# softmax / confidence: softmax turns logits into probabilities summing to 1; CrossEntropyLoss applies it internally.
+#   Confidence = the largest probability (used later for pseudo-labels).
+# cross-entropy loss: the classification loss; large when the model gives low probability to the true class. The
+#   training signal that gradients come from.
+# label smoothing: softens the one-hot targets slightly (cfg.label_smoothing, 0 = off) so the model is not pushed to be
+#   over-confident.
+# gradient / backpropagation: how much the loss changes with each weight; loss.backward() computes it, the optimiser
+#   then moves the weights against it.
+# optimiser / AdamW: the algorithm that updates weights from gradients. AdamW adapts the step per weight and applies
+#   weight decay separately (decoupled) from the gradient.
+# weight decay: a small pull of weights towards 0 each step that fights over-fitting. Not applied to biases, norm-layer
+#   scales, pos_embed and cls_token (param_groups).
+# learning rate (lr): how big each update is. Warm-up: lr rises linearly from ~0 over the first steps (warmup_frac of
+#   all steps) so early noisy gradients do not wreck pretrained weights.
+# cosine schedule / LambdaLR: after warm-up lr decays along a half cosine from lr to 0. LambdaLR multiplies the base lr
+#   by factor(step); stepped once per batch, not per epoch.
+# mixed precision / autocast / fp16 / GradScaler: autocast runs the forward pass in 16-bit where safe (faster, less
+#   memory); GradScaler scales the loss so tiny fp16 gradients do not underflow to 0. CUDA only.
+# model.train() vs model.eval(): train mode keeps dropout on and lets batch-norm update running statistics; eval mode
+#   turns dropout off and uses the stored statistics.
+# torch.no_grad: switches off gradient tracking during prediction to save memory and time.
+# validation set vs test set: validation is scored every epoch to choose the best weights and to stop early; the test
+#   set is predicted exactly once at the end with the selected weights and never used for any decision.
+# accuracy vs macro-F1: accuracy = share correct; macro-F1 = unweighted mean of per-class F1, so every class counts
+#   equally. Macro-F1 on validation is the model-selection metric.
+# model selection / best weights / state_dict: after each epoch, if validation macro-F1 is a new best, a CPU copy of the
+#   weights (state_dict) is kept; at the end the model is reloaded with them.
+# early stopping / patience: stop training when validation macro-F1 has not improved for cfg.patience epochs in a row
+#   (bad_epochs counter).
+# seed / reproducibility: seed_everything fixes Python, NumPy and PyTorch randomness; env.json records versions, device
+#   and git commit. GPU runs are close but not guaranteed bit-identical.
+# labelled subset / unlabelled pool / pseudo-labels / teacher / student: a run trains on the labelled subset (fraction
+#   of train images); the rest is the pool; a teacher predicts the pool and confident predictions become pseudo-labels;
+#   a student trains on labelled + pseudo-labelled images.
+# in_chans = 3 or 13: RGB or all 13 Sentinel-2 bands; pretrained: start from ImageNet weights (models/__init__.py adapts
+#   the first layer for 13 bands).
+# run folder / metrics.json as completion marker: each run writes results/runs/<run_name>/; metrics.json is written
+#   last, so its presence means the run finished and it can be skipped.
+# .npz / float16 logits: compressed NumPy file; logits stored in half precision to save space, ids kept so predictions
+#   can be matched to images.
+# DataLoader: PyTorch object that hands out batches of (images, labels); built by data/loaders.py.
+
+# ======================================== Q&A ABOUT THIS FILE ========================================
+# Q: What is this file for?
+# A: It is the one training routine of the project: `run(cfg)` trains a model, picks the best epoch on validation,
+#   predicts val/test (and the unlabelled pool) and writes everything into the run folder.
+# Q: Where does it fit in the pipeline?
+# A: scripts/run_grid.py (supervised grid and tuning) and ssl/self_training.py (pseudo-label students) both call `run`.
+#   Its saved predictions are the input of eval/evaluate.py and ssl/pseudo_label.py.
+# Q: What does it read and write?
+# A: It reads the split files (via the data loaders) and, for a student, pseudo_labels.csv. It writes config.yaml,
+#   env.json, history.csv, preds_val/test/unlabelled.npz, metrics.json (last) and optionally best.pt.
+# Q: Why is the test set only used at the very end?
+# A: If the test set influenced any choice (best epoch, stopping, learning rate) the final test score would be
+#   optimistic. Here selection uses validation only, so the test score is an honest estimate.
+
 # Parent folder under which every run gets its own sub-folder.
 RUNS_DIR = RESULTS_DIR / "runs"
 
 
+# Q: What does _read do?
+# A: It returns the stripped text of a file, or "" if the file does not exist.
+# Q: Why not just read the file directly?
+# A: A missing COMMIT file (only present in code zips) must not crash the run; an empty string lets `environment` fall
+#   back gracefully.
 def _read(path: Path) -> str:
     """Stripped text of `path`, or "" if it does not exist.
 
@@ -89,6 +159,14 @@ def _read(path: Path) -> str:
     return path.read_text().strip() if path.exists() else ""
 
 
+# Q: What does environment() return and why save it?
+# A: A dict with Python / torch / timm / numpy versions, CUDA version, device name, git commit and whether the code has
+#   uncommitted changes. It is saved as env.json so a result can be traced to the exact software and code.
+# Q: What does git_dirty tell us?
+# A: True means tracked files had uncommitted changes, so the commit hash alone would not reproduce the exact code used.
+# Q: Why is there a fallback to a COMMIT file?
+# A: Code zips made for the compute server have no .git folder, so scripts/make_code_zip.sh writes the commit hash into
+#   a COMMIT file instead.
 def environment() -> dict:
     """Versions, device and git state of this machine, saved as env.json for reproducibility.
 
@@ -96,6 +174,11 @@ def environment() -> dict:
         A dict with the Python / torch / timm / numpy versions, the CUDA version, the device name,
         the current git commit and whether there are uncommitted changes.
     """
+    # Q: What does this inner helper do?
+    # A: It runs `git <args>` in the repository folder and returns the printed text, or "" if git is not installed.
+    # Q: Why catch OSError?
+    # A: When git is missing, subprocess raises OSError; reporting "" is better than crashing a training run just for
+    #   metadata.
     def git(*args):
         """Run `git <args>` in the repository and return its output text ("" if git is unavailable)."""
         try:
@@ -122,6 +205,17 @@ def environment() -> dict:
     }
 
 
+# Q: What does param_groups do?
+# A: It splits the model's trainable parameters into two lists for AdamW: ordinary weights (with weight decay) and 1-D /
+#   embedding parameters (without decay).
+# Q: Why not decay biases, norm scales, pos_embed and cls_token?
+# A: Shrinking them towards 0 hurts more than it helps: they are shifts/scales or learned embeddings, not large weight
+#   matrices that need regularising. This is the standard recipe for transformers.
+# Q: How are those parameters recognised?
+# A: Biases and norm scales have ndim <= 1; pos_embed and cls_token are higher-dimensional, so they are matched by name.
+#   Frozen parameters (requires_grad False) are skipped.
+# Q: What is returned?
+# A: A list of two dicts in the per-group format torch.optim.AdamW accepts.
 def param_groups(model: nn.Module, weight_decay: float):
     """Two AdamW parameter groups: weights with decay, and 1-D / embedding parameters without.
 
@@ -150,6 +244,17 @@ def param_groups(model: nn.Module, weight_decay: float):
     return [{"params": decay, "weight_decay": weight_decay}, {"params": no_decay, "weight_decay": 0.0}]
 
 
+# Q: What does this function do?
+# A: It creates the learning-rate schedule: a linear warm-up to the base lr over warmup_steps, then a cosine decay down
+#   to 0 at total_steps.
+# Q: Why warm up, and why cosine decay?
+# A: Warm-up avoids large destructive updates at the start (especially to pretrained weights); decaying to 0 lets the
+#   model settle into a good solution at the end.
+# Q: Why is the multiplier (step + 1) / warmup_steps?
+# A: The "+1" means the very first step already has a non-zero learning rate instead of exactly 0.
+# Q: When should scheduler.step() be called?
+# A: Once per batch (optimiser step), not once per epoch. If early stopping ends the run, the decay has simply not
+#   reached 0.
 def cosine_with_warmup(optimizer, total_steps: int, warmup_steps: int):
     """LambdaLR schedule over optimiser steps: linear warm-up to the base lr, then cosine decay to 0.
 
@@ -165,6 +270,12 @@ def cosine_with_warmup(optimizer, total_steps: int, warmup_steps: int):
     Returns:
         A `LambdaLR` scheduler (a scheduler multiplies the base learning rate by a factor each step).
     """
+    # Q: What does this inner function compute?
+    # A: The factor (0 to 1) by which the base learning rate is multiplied at optimiser step `step`: warm-up ramp first,
+    #   then 0.5 * (1 + cos(pi * progress)).
+    # Q: Why min(1.0, progress) and max(1, ...)?
+    # A: To keep the cosine within its range if training goes past the planned steps, and to avoid dividing by zero when
+    #   warm-up covers all steps.
     def factor(step):
         """Learning-rate multiplier (between 0 and 1) for optimiser step number `step`."""
         # Warm-up: climb linearly so early, noisy gradients do not wreck the pretrained weights.
@@ -179,6 +290,18 @@ def cosine_with_warmup(optimizer, total_steps: int, warmup_steps: int):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, factor)
 
 
+# Q: What does predict do?
+# A: It runs the model over a data loader and returns all logits (float32 NumPy, N x classes) and the true labels (empty
+#   array for an unlabelled loader).
+# Q: Why model.eval() and torch.no_grad()?
+# A: eval() turns off dropout and makes batch-norm use its stored statistics so predictions are deterministic; no_grad()
+#   skips gradient bookkeeping, saving memory and time.
+# Q: How does it tell a labelled loader from an unlabelled one?
+# A: A labelled loader yields (images, labels) pairs; an unlabelled one yields bare tensors, which is checked with
+#   isinstance(batch, torch.Tensor).
+# Q: Why does it return logits rather than predicted classes?
+# A: Logits keep all information: argmax gives the class, softmax gives confidence (needed for pseudo-labels and
+#   calibration/ECE later).
 @torch.no_grad()
 def predict(model: nn.Module, loader: DataLoader, device: torch.device, amp: bool) -> tuple[np.ndarray, np.ndarray]:
     """Return (logits, labels) as NumPy arrays; labels is empty for an unlabelled loader.
@@ -211,6 +334,18 @@ def predict(model: nn.Module, loader: DataLoader, device: torch.device, amp: boo
     return torch.cat(logits).numpy(), (torch.cat(labels).numpy() if labels else np.array([]))
 
 
+# Q: What does this function do?
+# A: It trains the model for one epoch: for each batch, forward pass, loss, backpropagation, optimiser step, scheduler
+#   step; it returns the mean training loss and accuracy.
+# Q: Why zero_grad, scaler.scale(...).backward(), scaler.step and scaler.update in this order?
+# A: Gradients accumulate by default, so they are cleared first; the loss is scaled before backward so fp16 gradients do
+#   not vanish; scaler.step applies the update (skipped if values overflowed); update adjusts the scale for the next
+#   batch.
+# Q: Is the returned training accuracy a performance estimate?
+# A: No. It is measured on augmented images in train mode while the weights change, so it is only a rough progress
+#   signal. The real estimate is the validation / test score.
+# Q: What is max_batches?
+# A: A debug cap to stop an epoch early for quick tests; it is None in normal runs.
 def train_one_epoch(model, loader, optimizer, scheduler, scaler, criterion, device, amp, max_batches=None):
     """One pass over `loader` (an "epoch" may be a fixed number of sampled steps, see the budget rule).
 
@@ -263,6 +398,13 @@ def train_one_epoch(model, loader, optimizer, scheduler, scaler, criterion, devi
     return {"loss": loss_sum / max(n, 1), "accuracy": correct / max(n, 1)}
 
 
+# Q: What does _save_preds do?
+# A: It writes logits (as float16), labels and sample ids to a compressed .npz file.
+# Q: Why save logits instead of only metrics?
+# A: Phase 6 re-computes all metrics (accuracy, F1, ECE, confusion matrices, paired bootstraps) from these files without
+#   retraining, and the unlabelled-pool logits become pseudo-labels.
+# Q: Why float16 and why save the ids?
+# A: float16 halves the file size; the ids let predictions be matched to images and aligned across runs.
 def _save_preds(path: Path, logits, labels, ids):
     """Save logits (as float16), labels and sample ids to a compressed .npz; Phase 6 re-computes all metrics from it.
 
@@ -276,6 +418,23 @@ def _save_preds(path: Path, logits, labels, ids):
     np.savez_compressed(path, logits=logits.astype(np.float16), labels=labels, ids=np.asarray(ids))
 
 
+# Q: What does run do, in order?
+# A: Skips if finished; saves config and environment; checks split integrity and seeds everything; builds loaders,
+#   model, AdamW, cosine schedule, GradScaler and loss; trains epoch by epoch with validation, best-weights tracking and
+#   early stopping; reloads the best weights; predicts val (and test, and the unlabelled pool); writes metrics.json
+#   last.
+# Q: Why is metrics.json written last?
+# A: Its presence marks a complete run, so a crashed run (no metrics.json) is simply started again while a finished one
+#   is skipped.
+# Q: Why are the best weights kept in memory and the test set predicted only after training?
+# A: Keeping a deep CPU copy avoids a large checkpoint file; predicting the test set once, with the validation-selected
+#   weights, means nothing about the test set can influence training or selection.
+# Q: What are the inputs and the return value?
+# A: cfg (TrainConfig), overwrite (retrain even if finished) and runs_dir (parent folder); it returns the metrics dict
+#   that is also saved as metrics.json.
+# Q: How does a pseudo-label student differ?
+# A: Only through the config: cfg.pseudo_labels names a CSV in the run folder; its ids/labels are added to the training
+#   set, and pseudo-label quality is written after training for analysis only.
 def run(cfg: TrainConfig, overwrite: bool = False, runs_dir: Path = RUNS_DIR) -> dict:
     """Train one run described by `cfg`, write its run folder and return the metrics dict.
 

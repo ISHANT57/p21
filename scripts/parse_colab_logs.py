@@ -38,6 +38,60 @@ from pathlib import Path
 # pandas builds, sorts and saves the final table of runs.
 import pandas as pd
 
+# ======================================================================
+# CONCEPTS USED IN THIS FILE
+# ======================================================================
+# Colab notebook (.ipynb): a JSON file that holds cells; each code cell stores its outputs, including the text that was
+#   printed during training. notebook_text reads that text.
+# stream output: the notebook output type that holds printed text (as opposed to images or errors). Only these are read.
+# regular expression (re): a pattern language for matching text. NAME, RESULT, TEACHER and TUNE are compiled patterns
+#   that pick the numbers out of the printed lines.
+# named group (?P<name>...): a part of a pattern that can be read back by name, e.g. m['test_f1']. Used everywhere in
+#   the patterns below.
+# run name: the label printed for each run, like resnet50_ms_10pct_seed1_pl = model, input, label percentage, seed and
+#   optional variant. NAME splits it into those parts.
+# modality, fraction, variant: input type (rgb or ms = 13 bands), share of labels used (10pct -> 0.1), and supervised /
+#   pl / plb. A name without a variant suffix is the plain 'supervised' run.
+# teacher and student (pseudo-labelling): a teacher model trained on the few labels labels the unlabelled 'pool' of
+#   images; the student is trained on those pseudo-labels. TEACHER reads the teacher's name, tau, precision and counts.
+# tau (threshold): the confidence level above which a teacher prediction is accepted as a pseudo-label; chosen on the
+#   validation set. Column tau.
+# validation precision: of the pool images accepted at tau, the share whose label was right, measured on the validation
+#   set. Column val_precision.
+# n_pseudo / n_pool: how many pool images got a pseudo-label out of the whole unlabelled pool (for example 15935/18708).
+# best epoch: the training epoch with the highest validation score; its weights are the ones tested.
+# validation vs test: validation numbers choose the best epoch and the learning rate; test numbers are the final result.
+#   Columns val_acc, val_f1, test_acc, test_f1.
+# macro-F1 / accuracy: macro-F1 averages the per-class F1 with equal weight; accuracy is the share of correct
+#   predictions. Both are only read from the log, not computed here.
+# learning-rate sweep (tuning): short runs with different learning rates (names contain _tune_lr...), judged on
+#   validation scores only so the test set stays untouched. Handled by parse_tuning.
+# dict keyed by run name: a later result for the same name replaces an earlier one, so a re-run after an interrupted
+#   session wins. Used in parse and main (merged).
+# evidence file: the log lines that the CSV rows came from, saved as <notebook>.txt so each number can be traced back to
+#   the log.
+# CSV and DataFrame: CSV is a plain-text table; pandas DataFrame is the in-memory table. sort_values orders rows,
+#   to_csv(index=False) saves without row numbers, groupby(...).size() counts rows per group.
+# argparse (nargs='+'): the standard-library command-line parser; 'notebooks' accepts one or more files.
+# slug: a safe file name made by replacing every run of non-word characters with '_' (re.sub(r'\W+', '_', ...)).
+
+# ======================================================================
+# Q&A ABOUT THIS FILE (file-level viva questions)
+# ======================================================================
+# Q: What is this file for?
+#    A: It reads the printed result lines of Colab notebooks and turns them into runs_from_logs.csv (one row per
+#       finished run) and tuning_from_logs.csv (the learning-rate sweep). It exists because lanes A and C kept only
+#       their notebooks, not the run folders.
+# Q: Where does it fit in the pipeline?
+#    A: It is the first step of the log route: parse_colab_logs.py -> eval_from_logs.py -> make_figures.py and
+#       make_report_tables.py. The normal route (collect_results.py and evaluate.py) needs run folders instead.
+# Q: How is it run and what does it write?
+#    A: python scripts/parse_colab_logs.py NB1.ipynb [NB2.ipynb ...] [--out results/logs]. It writes runs_from_logs.csv,
+#       tuning_from_logs.csv (if sweep runs exist) and one <notebook>.txt evidence file per notebook into --out.
+# Q: What happens if a run appears in several notebooks?
+#    A: The last occurrence in the last notebook given wins, and every disagreement in test F1 is printed so it can be
+#       checked.
+
 # Pattern for a run name such as "resnet50_ms_10pct_seed1_pl": it splits out the model, the input type
 # (rgb or ms), the percentage of labels, the seed and the optional pseudo-label variant (pl or plb).
 NAME = re.compile(r"^(?P<model>scratch_cnn|resnet50|vit_small|vit_scratch)_(?P<modality>rgb|ms)_(?P<pct>\d+)pct_"
@@ -51,6 +105,14 @@ TEACHER = re.compile(r"^\[(?P<name>[^\]]+)\] teacher (?P<teacher>\S+): tau=(?P<t
                      r"(?P<n>\d+)/(?P<pool>\d+) pseudo-labels")
 
 
+# Q: What does this function do?
+#    A: It opens a notebook (a JSON file), goes through all cells and joins the printed (stream) outputs into one text
+#       string.
+# Q: Why keep only stream outputs?
+#    A: The result lines are produced by print, so they are stream text. Images and error tracebacks do not contain
+#       result lines and are ignored.
+# Q: What are the input and output?
+#    A: Input: the path of the .ipynb file. Output: one string, the printed text of the whole notebook.
 def notebook_text(path: Path) -> str:
     """All stream outputs of every code cell, joined (error tracebacks are ignored).
 
@@ -74,6 +136,18 @@ def notebook_text(path: Path) -> str:
     return "\n".join(out)
 
 
+# Q: What does this function do?
+#    A: It scans the notebook text line by line, picks out the 'run finished' lines and the 'teacher ... pseudo-labels'
+#       lines, and builds one dictionary per finished run.
+# Q: Why are the teacher details stored separately and attached at the end?
+#    A: The teacher line of a student can be printed before or after its result line. Keeping them in their own
+#       dictionary by run name lets them be joined once all lines have been read.
+# Q: Why is rows a dict keyed by run name, and why are some lines skipped?
+#    A: If a run was repeated, the later result replaces the earlier one. Learning-rate sweep runs (_tune_) have no test
+#       numbers and names that do not follow the naming scheme cannot be put in the table, so they are skipped (the
+#       second kind is reported).
+# Q: What does it return?
+#    A: A pair: the list of run dictionaries and the list of log lines they came from (the evidence).
 def parse(path: Path) -> tuple[list[dict], list[str]]:
     """Rows of finished runs in one notebook, plus the evidence lines (result and teacher lines).
 
@@ -135,6 +209,14 @@ TUNE = re.compile(r"^\[(?P<name>(?P<model>scratch_cnn|resnet50|vit_small)_(?P<mo
                   r"f1 (?P<val_f1>[\d.]+) \| (?P<minutes>[\d.]+) min")
 
 
+# Q: What does this function do?
+#    A: It finds the finished learning-rate sweep runs in a notebook and returns their settings, learning rate and
+#       validation scores.
+# Q: Why only validation numbers?
+#    A: The learning rate is chosen on validation data. Looking at test scores to choose it would leak the test set into
+#       model selection and make the final result too optimistic.
+# Q: What does it return?
+#    A: A list of dictionaries, one per sweep run; a repeated run name keeps only the last occurrence.
 def parse_tuning(path: Path) -> list[dict]:
     """Finished learning-rate sweep runs of one notebook (validation numbers only; the test set is not used).
 
@@ -158,6 +240,15 @@ def parse_tuning(path: Path) -> list[dict]:
     return list(rows.values())
 
 
+# Q: What does main do?
+#    A: It parses every notebook in the given order, saves each notebook's evidence lines, merges all runs (later ones
+#       win), writes runs_from_logs.csv, prints a count per variant and model, and writes tuning_from_logs.csv if sweep
+#       runs were found.
+# Q: Why print the count per variant and model?
+#    A: It is a quick completeness check: the numbers can be compared with the planned number of runs.
+# Q: Why is the output sorted?
+#    A: Sorting by variant, model, modality, fraction and seed makes the CSV order stable, so re-running the script
+#       gives the same file and git shows only real changes.
 def main() -> None:
     """Parse the given notebooks in order and write runs_from_logs.csv and one evidence file per notebook."""
     # Build the command-line parser; its description is the first line of this file's docstring.

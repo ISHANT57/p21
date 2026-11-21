@@ -50,10 +50,66 @@ import pandas as pd
 from eurosat_le.constants import CLASSES
 from eurosat_le.data.splits import load_split, load_subset
 
+# ======================================== CONCEPTS USED IN THIS FILE ========================================
+# semi-supervised learning / self-training: using many unlabelled images as well as a few labelled ones. A teacher model
+#   labels the unlabelled images itself and a student learns from them too.
+# teacher / student: the teacher is a finished supervised run (trained on the labelled subset only); the student is a
+#   new run trained on labelled + pseudo-labelled images.
+# pseudo-label: a label guessed by the teacher (its argmax class) for an image whose true label is not used.
+#   Pseudo-labels can be wrong.
+# labelled subset vs unlabelled pool: the labelled subset is the fraction of train images whose labels are known; the
+#   pool is every other train image, used without labels.
+# logits and softmax: logits are the model's raw scores; softmax makes them probabilities in each row that are positive
+#   and add up to 1.
+# confidence: the largest softmax probability of an image; the prediction is the class that has it (argmax).
+# confidence threshold tau: an image gets a pseudo-label only if confidence >= tau. A high tau gives fewer but more
+#   reliable pseudo-labels.
+# tau grid (TAU_GRID): the candidate thresholds 0.50, 0.51 ... 0.99 that are tried.
+# precision and coverage at tau: coverage = share of images with confidence >= tau; precision = share of those predicted
+#   correctly. Raising tau lowers coverage and usually raises precision.
+# target_precision (default 0.95): the quality we demand; tau is the smallest grid value whose VALIDATION precision
+#   reaches it (keeps the most pseudo-labels). If none reaches it, the most precise tau is used.
+# validation vs test set: tau is chosen from the teacher's VALIDATION predictions only; the test set is never used here
+#   (no leakage).
+# class balancing / class prior: optional cap so each predicted class keeps at most its share (from the labelled
+#   subset's class counts) of the confident images; stops easy classes from dominating the pseudo-labels.
+# stable sort: argsort(kind="stable") keeps tied items in their original order, so results are reproducible.
+# confirmation bias: the risk that the student learns the teacher's mistakes; quality() measures how large it could be
+#   but is analysis only.
+# leakage safeguards: pool must not overlap the labelled subset (RuntimeError otherwise); true labels of pool images are
+#   read only in quality(), after the student is trained.
+# .npz / float16: the teacher's saved prediction files; logits were stored as float16 and are converted back to float32
+#   here.
+# allow_pickle=False: a safety option so np.load only reads plain arrays, never arbitrary Python objects.
+# DataFrame / CSV: pandas table and the text file format used for pseudo_labels.csv (id, label, confidence) and the
+#   threshold table.
+
+# ======================================== Q&A ABOUT THIS FILE ========================================
+# Q: What is this file for?
+# A: It turns a finished teacher run's predictions into pseudo-labels: it picks the confidence threshold tau on
+#   validation, selects confident unlabelled images and writes pseudo_labels.csv.
+# Q: Where does it fit in the pipeline?
+# A: Phase 5. train/engine.py saves the teacher's preds_val.npz and preds_unlabelled.npz; ssl/self_training.py
+#   train_student calls make_pseudo_labels; engine.run then trains the student and later calls quality().
+# Q: What does it read and write?
+# A: It reads preds_val.npz and preds_unlabelled.npz from the teacher folder and the split/subset files. It writes
+#   pseudo_labels.csv, pseudo_label_thresholds.csv and pseudo_label_selection.json into the student's run folder.
+# Q: How does it avoid using the true labels of the unlabelled images?
+# A: Selection uses only the teacher's probabilities and validation labels. The pool's true labels are read in exactly
+#   one place, quality(), which runs after training and is never used for any decision.
+
 # Candidate thresholds 0.50, 0.51, ..., 0.99 (rounded to remove floating-point noise from arange).
 TAU_GRID = np.round(np.arange(0.50, 0.995, 0.01), 2)
 
 
+# Q: What does softmax do?
+# A: It converts each row of raw scores (logits) into probabilities that add up to 1; the biggest score gets the biggest
+#   probability.
+# Q: Why subtract the row maximum first?
+# A: The result is mathematically identical but exp() of a large number cannot overflow; without it big logits could
+#   give infinity / NaN.
+# Q: Why float64?
+# A: Higher precision for the exponentials and sums, so confidences compared with tau are accurate.
 def softmax(logits: np.ndarray) -> np.ndarray:
     """Row-wise softmax of (N, C) logits, computed in float64 with the row max subtracted for stability.
 
@@ -67,6 +123,15 @@ def softmax(logits: np.ndarray) -> np.ndarray:
     return e / e.sum(axis=1, keepdims=True)
 
 
+# Q: What does threshold_table compute?
+# A: For every tau in the grid, the coverage (share of validation images with confidence >= tau) and the precision
+#   (share of those that the teacher classifies correctly).
+# Q: Why use validation labels here and is that allowed?
+# A: Yes: validation labels are meant for decisions like choosing hyper-parameters. Using them to pick tau is
+#   legitimate; using the test set would not be.
+# Q: What does the table show?
+# A: The trade-off: a higher tau gives higher precision but lower coverage. Precision is NaN when no image passes the
+#   threshold.
 def threshold_table(val_probs: np.ndarray, val_labels: np.ndarray, grid=TAU_GRID) -> pd.DataFrame:
     """Validation precision and coverage of the teacher's predictions for each threshold tau.
 
@@ -91,6 +156,14 @@ def threshold_table(val_probs: np.ndarray, val_labels: np.ndarray, grid=TAU_GRID
     return pd.DataFrame(rows)
 
 
+# Q: What does choose_threshold do?
+# A: It returns the smallest tau whose validation precision is at least target_precision, plus the full table.
+# Q: Why the smallest acceptable tau?
+# A: A smaller tau keeps more pseudo-labelled images, while the validation precision shows that their quality is still
+#   acceptable.
+# Q: What if no tau reaches the target?
+# A: The most precise tau in the table is used instead (the lowest one among ties), so the function always returns a
+#   value.
 def choose_threshold(val_probs, val_labels, target_precision: float = 0.95, grid=TAU_GRID) -> tuple[float, pd.DataFrame]:
     """Pick tau on validation data only; return (tau, the full threshold table).
 
@@ -115,6 +188,16 @@ def choose_threshold(val_probs, val_labels, target_precision: float = 0.95, grid
     return float(table.loc[table["precision"].idxmax(), "tau"]), table
 
 
+# Q: What does select do?
+# A: It returns the positions (indices into the pool) of the images chosen as pseudo-labelled: those with confidence >=
+#   tau, ordered from most to least confident.
+# Q: What does balance=True change and why?
+# A: Each predicted class may keep at most ceil(its share of the labelled subset x number of confident images), most
+#   confident first. This stops a few easy classes from dominating; a class with fewer confident images simply keeps all
+#   of them.
+# Q: Why is class_prior needed only when balancing?
+# A: The caps come from the class proportions (counts of the labelled subset); without balancing no proportions are
+#   used.
 def select(pool_probs: np.ndarray, tau: float, balance: bool = False, class_prior=None) -> np.ndarray:
     """Return indices (into the pool) of the selected items, ordered by decreasing confidence.
 
@@ -152,6 +235,11 @@ def select(pool_probs: np.ndarray, tau: float, balance: bool = False, class_prio
     return out[np.argsort(-conf[out], kind="stable")]
 
 
+# Q: What does _load_npz return?
+# A: A teacher prediction file as (float32 logits, labels, string ids).
+# Q: Why astype(np.float32) and allow_pickle=False?
+# A: Logits were saved as float16 and need to be converted back for maths; allow_pickle=False means only plain arrays
+#   can be loaded, which is safer.
 def _load_npz(path: Path):
     """Load a preds_*.npz file as (float32 logits, labels, string ids); logits were saved as float16."""
     # allow_pickle=False is a safety setting: only plain arrays may be loaded, never arbitrary Python objects.
@@ -160,6 +248,17 @@ def _load_npz(path: Path):
     return d["logits"].astype(np.float32), d["labels"], d["ids"].astype(str)
 
 
+# Q: What does make_pseudo_labels do, step by step?
+# A: Loads the teacher's validation and pool predictions; checks the pool does not overlap the labelled subset; picks
+#   tau on validation; selects confident pool images (optionally class-balanced); writes pseudo_labels.csv (id, label,
+#   confidence), the threshold table and a JSON summary; returns the summary.
+# Q: What is the pseudo-label of an image?
+# A: The teacher's argmax class for that image; its confidence is the max probability.
+# Q: Why raise RuntimeError if pool and labelled subset overlap?
+# A: A labelled image must never get a pseudo-label; an overlap would mean the split or subset files are wrong and the
+#   experiment invalid.
+# Q: Why may the class prior come from the labelled subset?
+# A: Those labels are known to the teacher anyway, so using their class counts leaks nothing.
 def make_pseudo_labels(teacher_dir: Path, out_dir: Path, fraction: float, seed: int,
                        target_precision: float = 0.95, balance: bool = False) -> dict:
     """Create out_dir/pseudo_labels.csv from teacher_dir; return the selection summary.
@@ -216,6 +315,9 @@ def make_pseudo_labels(teacher_dir: Path, out_dir: Path, fraction: float, seed: 
     return summary
 
 
+# Q: What does load_pseudo_labels return and who uses it?
+# A: The image ids and integer class labels from pseudo_labels.csv as Python lists, in file order (most confident
+#   first). train/engine.py passes them to the data loader as extra training examples.
 def load_pseudo_labels(path: Path) -> tuple[list[str], list[int]]:
     """Read pseudo_labels.csv; return (ids, integer class labels) in file order (most confident first)."""
     # Read the CSV and return its id and label columns as plain Python lists.
@@ -223,6 +325,15 @@ def load_pseudo_labels(path: Path) -> tuple[list[str], list[int]]:
     return pl["id"].tolist(), pl["label"].astype(int).tolist()
 
 
+# Q: What does quality compute?
+# A: The accuracy of the pseudo-labels against the images' hidden true labels, overall and per predicted class (count
+#   and fraction correct, None for an empty class).
+# Q: Why is it "analysis only" and when is it called?
+# A: It is the only place that reads the true labels of pool images. The engine calls it after the student is trained
+#   and writes pseudo_label_quality.json; nothing reads it during training or selection, so hidden labels cannot
+#   influence the student.
+# Q: Why compute it at all?
+# A: For the report: it shows how many pseudo-labels are wrong, i.e. how large confirmation bias could be.
 def quality(pseudo_path: Path) -> dict:
     """ANALYSIS ONLY: accuracy of pseudo-labels against the hidden true labels.
 

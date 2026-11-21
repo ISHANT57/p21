@@ -55,6 +55,63 @@ from eurosat_le.eval.evaluate import (check_against_logged, compare, load_preds,
 # RUNS_DIR is the default folder holding one sub-folder per run.
 from eurosat_le.train.engine import RUNS_DIR
 
+# ==================== CONCEPTS USED IN THIS FILE ====================
+# - argparse: standard-library module that reads command-line options (--runs-dir, --out, --n-boot, --examples, --quiet)
+#   into an object.
+# - saved predictions / logits: each run stored the model's raw class scores (logits) for val and test in preds_val.npz
+#   / preds_test.npz; this script reads them and never trains or re-runs a model.
+# - softmax: turns logits into probabilities that are positive and sum to 1; argmax of the probabilities is the
+#   predicted class, and its value is the confidence.
+# - accuracy, precision, recall, F1, macro-F1: accuracy = share correct; precision = of the images predicted as a class,
+#   how many are right; recall = of the true images of a class, how many were found; F1 = their harmonic mean; macro-F1
+#   = average of the per-class F1 with equal weight.
+# - recompute vs logged metrics: numbers are rebuilt from the logits and compared with metrics.json; if they differ by
+#   more than 0.001 a WARNING is printed (the run is still used). Logits are stored as float16, which can flip rare
+#   ties.
+# - ECE (expected calibration error): measures whether confidence is honest: among predictions made with 80% confidence
+#   about 80% should be right. Computed with 15 equal-width confidence bins; 0 is perfect.
+# - confusion matrix, row-normalised: table of true class (rows) vs predicted class (columns); dividing each row by its
+#   total gives the share of each true class sent to each predicted class. Averaged over seeds here.
+# - seeds, mean and sample std (ddof=1): each setting has 3 labelled-subset seeds; tables show mean and sample standard
+#   deviation over them; with one seed the std is empty (NaN).
+# - group / setting / variant: GROUP = model, modality, fraction, variant. 'variant' is 'supervised' for plain runs, or
+#   the name_suffix ('pl', 'plb') for pseudo-label students.
+# - paired comparison: two runs are compared only if everything except one factor (modality, model or variant) and the
+#   seed match, so they share the labelled images, the initialisation seed and the same test images.
+# - bootstrap and 95% interval: re-draw the test images with replacement many times (--n-boot, default 1000) and
+#   recompute the macro-F1 difference; the middle 95% of the results is the interval. If it excludes 0, the difference
+#   is unlikely to be luck. Paired = the same resample is used for both runs.
+# - delta_f1, seeds_b_better, seeds_ci_excludes_0: delta_f1 = macro-F1(b) - macro-F1(a); the summary counts in how many
+#   seeds b is better and in how many the interval excludes 0 (counts over seeds, not p-values).
+# - pandas groupby / agg / DataFrame: tables are grouped by setting and aggregated with mean/std/nunique, then saved as
+#   CSV.
+# - numpy bincount / argsort / flatnonzero: fast array helpers: count occurrences, sort indices, find the positions of
+#   True values (here the misclassified images).
+# - memory-mapped cache (load_cache): all RGB images packed in one .npy file read lazily from disk, so it does not fill
+#   the RAM; rows follow splits/split.csv.
+# - matplotlib / viz style: plotting library; viz.apply_style sets the project's look. Imported inside plot_errors so
+#   the rest of the script works without it.
+# - lambda / progress function: progress is either print or a function that does nothing (with --quiet), so timing
+#   messages can be silenced without touching the results.
+# - time.perf_counter: high-resolution clock for measuring how long each step takes.
+# - if __name__ == '__main__': runs main() only when executed as a script, not when imported.
+# ====================================================================
+#
+# ---- Q&A: THIS FILE ----
+# Q: What is this file for?
+# A: It is Phase 6: it rebuilds every evaluation table from the saved predictions of all finished runs - per-run
+#    metrics, group means over seeds, per-class scores, confusion matrices, top confusions and paired comparisons with
+#    bootstrap intervals.
+# Q: What does it read and write?
+# A: Reads results/runs/*/ (preds_val.npz, preds_test.npz, config.yaml, metrics.json). Writes results/summary/eval/
+#    (per_run.csv, groups.csv, per_class.csv, confusion/*.csv, top_confusions.csv, compare_*.csv, and errors_<run>.png
+#    with --examples).
+# Q: Where does it fit in the pipeline?
+# A: After all training is done; scripts/make_figures.py (Phase 7) then turns these tables into figures. The heavy logic
+#    lives in eurosat_le.eval.evaluate; this script is the driver.
+# Q: How is it run?
+# A: python scripts/evaluate.py [--runs-dir PATH] [--out PATH] [--n-boot N] [--examples RUN ...] [--quiet].
+
 # Keys that define one "setting"; the 3 seeds of a setting are aggregated together. "variant" is "supervised"
 # for plain runs and the config name_suffix (e.g. "pl", "plb") for pseudo-label students.
 GROUP = ["model", "modality", "fraction", "variant"]
@@ -69,6 +126,16 @@ COMPARISONS = [  # (file stem, factor, a, b): b is compared against a
 ]
 
 
+# ---- Q&A: group_name ----
+# Q: What does group_name() do?
+# A: It builds the file-name stem for a group's confusion CSV, for example 'resnet50_rgb_1pct_supervised'.
+# Q: Why fraction * 100 with ':g'?
+# A: It writes 0.01 as '1' and 1.0 as '100', giving '1pct' and '100pct' without trailing zeros.
+# Q: Why must it stay in sync with make_figures.py?
+# A: That script rebuilds the same names (CONF_GROUP) to find these files; if the naming differed, the figures would not
+#    find their input.
+# Q: What are the input and the return value?
+# A: Input: a row/dict with the GROUP keys model, modality, fraction, variant. Returns a string.
 def group_name(row) -> str:
     """File stem for a group's confusion CSV, e.g. "resnet50_rgb_1pct_supervised".
 
@@ -79,6 +146,17 @@ def group_name(row) -> str:
     return f"{row['model']}_{row['modality']}_{row['fraction'] * 100:g}pct_{row['variant']}"
 
 
+# ---- Q&A: count_pairs ----
+# Q: What does count_pairs() do?
+# A: It counts how many run pairs compare() will match for one comparison, without loading any predictions.
+# Q: What is the matching rule?
+# A: Every GROUP key except the compared factor, plus the seed, must agree; the code builds an index of those keys for
+#    side a and side b and intersects them.
+# Q: Why is it needed?
+# A: To tell the user up front how much work (pairs x bootstrap resamples) is coming, so a long run does not look
+#    frozen.
+# Q: What are the inputs and the return value?
+# A: runs (table of runs), the factor name and its two values a and b. Returns an int.
 def count_pairs(runs: pd.DataFrame, factor: str, a, b) -> int:
     """Number of run pairs `compare` will match for one comparison, without loading any predictions.
 
@@ -91,6 +169,18 @@ def count_pairs(runs: pd.DataFrame, factor: str, a, b) -> int:
     return len(A.intersection(B))  # a pair exists only where both sides have the same key
 
 
+# ---- Q&A: main ----
+# Q: What does main() do?
+# A: It loads the finished runs, recomputes val/test metrics for each (warning if they differ from metrics.json), writes
+#    per_run.csv, groups.csv and per_class.csv, averages the confusion matrices per group and lists the top mistakes,
+#    runs every paired comparison with a bootstrap interval, optionally draws error pictures, and prints the total time.
+# Q: Why recompute the metrics instead of copying metrics.json?
+# A: The final report numbers should come from one reproducible computation on the saved predictions; the comparison
+#    with the logged values is a cross-check that catches mistakes.
+# Q: Why are comparisons with no matching pairs skipped silently?
+# A: Early in a study some runs do not exist yet; an empty comparison simply produces no file.
+# Q: What does --quiet change?
+# A: It switches off progress and timing messages only; tables, warnings and results are the same.
 def main() -> None:
     """Run the whole Phase 6 evaluation: per-run metrics, group tables, confusions, paired comparisons."""
     # Build the argument parser; the module docstring doubles as the --help text.
@@ -207,6 +297,15 @@ def main() -> None:
     print(f"\nwrote {out}" + ("" if args.quiet else f" ({time.perf_counter() - t_start:.1f} s total)"))
 
 
+# ---- Q&A: plot_errors ----
+# Q: What does plot_errors() do?
+# A: It saves a grid of up to n (24) misclassified test images of one run, each titled 'true -> predicted (confidence)'.
+# Q: Why are images always taken from the RGB cache, even for 13-band runs?
+# A: A human can look at RGB; the cache rows follow split.csv, so an image is found through its position in that table.
+# Q: Why a fixed seed when choosing the errors?
+# A: So the same grid is drawn every time the script is run.
+# Q: What are the inputs and the return value?
+# A: run_dir (a finished run with preds_test.npz), path (output PNG), n and seed. Returns None.
 def plot_errors(run_dir: Path, path: Path, n: int = 24, seed: int = 0) -> None:
     """Grid of misclassified test images (shown in RGB, also for 13-band runs).
 

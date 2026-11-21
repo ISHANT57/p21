@@ -34,10 +34,78 @@ from eurosat_le.models import ARCHS, build_model
 # seed_everything makes the random numbers (and so the model initialisation) repeatable.
 from eurosat_le.utils import seed_everything
 
+# ==================== CONCEPTS USED IN THIS FILE ====================
+# - smoke test / sanity check: a quick test that shows the code is wired correctly, not that the model is accurate.
+#   Here: can every model memorise 8 images? If not, there is a bug.
+# - overfitting a tiny batch: training many steps on the very same few images until the loss is near zero. A healthy
+#   model can do this; a model with frozen weights, a wrong input layer or broken normalisation cannot.
+# - argparse: standard-library module that reads command-line options (--models, --modalities, --batch, --steps,
+#   --no-pretrained) into an object.
+# - modality (rgb / ms): 3-band RGB input or 13-band multispectral input; the 13-band models need their first layer
+#   widened, which this test exercises.
+# - tensor / torch.stack: a tensor is PyTorch's multi-dimensional array; torch.stack joins the single images into one
+#   batch tensor of shape (batch, channels, 64, 64).
+# - batch: a small group of images processed together; here 8 images, one from each of up to 8 different classes.
+# - logits: the raw class scores the model outputs before softmax (shape batch x 10); here `out`.
+# - cross-entropy loss: measures how far the predicted class scores are from the true labels; lower is better;
+#   nn.functional.cross_entropy applies softmax internally.
+# - argmax / accuracy: out.argmax(1) picks the class with the highest score; the share equal to y is the batch accuracy.
+# - AdamW optimiser: the algorithm that updates the weights from the gradients; weight_decay=0.0 here because only
+#   fitting ability is tested.
+# - learning rate (LR dict): step size of the weight updates; the values here are only for this test and unrelated to
+#   the tuned training learning rates.
+# - optimisation step (zero_grad / backward / step): zero_grad clears old gradients, backward computes new ones
+#   (backpropagation), step updates the weights; this triple is repeated --steps times.
+# - train mode vs eval mode, BatchNorm: model.train() makes BatchNorm use the statistics of the current batch and keeps
+#   gradients on; the test checks accuracy in train mode because BatchNorm's running statistics need many more steps to
+#   settle.
+# - dropout: a regulariser that randomly switches off units during training; set to 0 here so the model can memorise the
+#   batch.
+# - pretrained weights: weights learned beforehand on ImageNet and downloaded by timm; --no-pretrained uses random
+#   weights instead.
+# - upsampling to 224 px: the ImageNet models need 224x224 input; the model wrapper enlarges the 64x64 images itself, so
+#   this script passes 64x64 data.
+# - seed_everything: fixes Python, NumPy and PyTorch random generators so initialisation is the same every run.
+# - labelled subset (1%, seed 0): the images come from the 1% labelled training subset of seed 0, so no validation or
+#   test image is touched.
+# - SystemExit: stops the script with a non-zero exit status and a message, so a failing test is noticed by scripts or
+#   CI.
+# - if __name__ == '__main__': runs main() only when executed as a script, not when imported.
+# ====================================================================
+#
+# ---- Q&A: THIS FILE ----
+# Q: What is this file for?
+# A: It is a quick wiring check run before real training: it tries to overfit one tiny real batch with every model and
+#    input type. It does not measure accuracy.
+# Q: What does it read and write?
+# A: It reads a few images through the project's dataset code (cached arrays and the 1% subset file) and, unless
+#    --no-pretrained is given, may download pretrained weights. It writes nothing to disk; it only prints one PASS/FAIL
+#    line per combination.
+# Q: When does a combination PASS?
+# A: When the final loss is below a quarter of the starting loss and the batch accuracy is exactly 1.0 after --steps
+#    steps.
+# Q: Does it use a GPU?
+# A: No. The model and batch are never moved to a GPU here, so it runs on the CPU.
+
 # Per-model learning rate for the overfitting test only (unrelated to the tuned training learning rates).
 LR = {"scratch_cnn": 2e-3, "resnet50": 5e-4, "vit_small": 2e-4, "vit_scratch": 1e-3}
 
 
+# ---- Q&A: main ----
+# Q: What does main() do?
+# A: For each input type it builds a batch of 8 real images with different classes; for each model it builds the
+#    network, trains it for --steps AdamW steps on that same batch with dropout off, and prints PASS or FAIL with the
+#    loss before and after and the batch accuracy. At the end it exits with an error if any combination failed.
+# Q: Why overfit a tiny batch instead of training normally?
+# A: It is the fastest way to find wiring bugs (wrong first layer for 13 bands, frozen weights, broken normalisation,
+#    bad data loading). A correct model must be able to memorise 8 images, so failure means a bug, not just a weak
+#    model.
+# Q: Why is the accuracy measured in train mode?
+# A: BatchNorm's running statistics need far more than a few steps to settle, so eval mode would test those statistics
+#    rather than the wiring.
+# Q: Why is the dataset built without augmentation and the seed reset for each model?
+# A: Without augmentation the same images come out every time and can be memorised; seed_everything(0) gives the same
+#    initial weights for every combination on every invocation.
 def main() -> None:
     """Try to overfit one tiny batch with every model/input combination and report PASS or FAIL for each.
 
@@ -80,7 +148,7 @@ def main() -> None:
             seed_everything(0)  # same init for every model/input combination on every invocation
             # Create the model; x.shape[1] is the number of input channels (3 for RGB, 13 for multispectral).
             model = build_model(name, x.shape[1], pretrained=not args.no_pretrained)
-            # Dropout/stochastic depth off: we test the ability to fit, not regularisation.
+            # Dropout off (only nn.Dropout layers are set to p=0): we test the ability to fit, not regularisation.
             for m in model.modules():
                 if isinstance(m, nn.Dropout):
                     m.p = 0.0

@@ -35,10 +35,68 @@ import pandas as pd
 from eurosat_le import tables as tab
 from eurosat_le.figures import FRACTION_LABEL, MODALITY_LABEL, MODEL_LABEL, MODELS
 
+# ======================================================================
+# CONCEPTS USED IN THIS FILE
+# ======================================================================
+# runs_from_logs.csv: one row per finished run (scores, best epoch, minutes, teacher details), made by
+#   parse_colab_logs.py. tuning_from_logs.csv: the learning-rate sweep runs.
+# display table: a DataFrame in which every cell is already formatted text (such as '97.8' or '+1.2 ± 0.4'), ready to be
+#   written as Markdown or LaTeX.
+# mean ± std and '(n=1)': the average over seeds and their spread. With one seed there is no spread, so the cell shows
+#   '(n=1)' instead of a made-up number (see _pm).
+# percentage points: a difference between two percentages (F1 of 95.0 versus 93.5 is +1.5 points). Scores are multiplied
+#   by 100 and shown with one decimal.
+# macro-F1 and accuracy: macro-F1 averages the per-class F1 with equal weight; accuracy is the share of correct
+#   predictions. Columns test_f1, test_acc, val_f1.
+# test vs validation: validation scores choose the best epoch and the learning rate; test scores are the final result.
+#   The learning-rate sweep shows validation scores only.
+# pseudo-labelling, teacher and student: a teacher model labels the unlabelled pool; the student is trained on those
+#   labels. pl_details compares each student with its teacher.
+# tau, validation precision, pool share: the confidence threshold for accepting a pseudo-label, the share of accepted
+#   labels that were correct on the validation set, and the percentage of pool images that got a label.
+# best epoch and training cost: the epoch with the best validation score and the minutes a run took; training_cost
+#   averages them per model and fraction.
+# learning-rate sweep: short runs with several learning rates, compared on validation scores; the rates that were used
+#   afterwards are marked 'yes'.
+# paired comparison (matched on seed): two models trained with the same seed are compared, then the differences are
+#   summarised. model_comparison reads these from compare_<stem>.csv.
+# sort key columns (_v, _m, _o): temporary numeric columns made with assign(...map(...)) so the rows sort in a chosen
+#   order (variant, model order, rgb before ms) and not alphabetically.
+# groupby / agg: split rows into groups (model and fraction) and compute count and mean per group. Used in
+#   training_cost.
+# format specs: '{:.1f}' is one decimal, '{:+.1f}' always shows the sign, {:,} adds thousands separators (used for the
+#   pseudo-label counts), and 'g' prints 0.0005 compactly.
+# NaN and pd.isna: pandas' 'not a number' value; here it marks a missing standard deviation.
+# Markdown and LaTeX tables with booktabs: tab.write_table writes <name>.md and <name>.tex; the LaTeX uses toprule /
+#   midrule / bottomrule lines; 'wide' means a table* spanning both columns; \scriptsize, \small are LaTeX font sizes.
+# argparse: reads the command-line options --logs, --eval and --out. CSV: plain-text table loaded with pd.read_csv.
+
+# ======================================================================
+# Q&A ABOUT THIS FILE (file-level viva questions)
+# ======================================================================
+# Q: What is this file for?
+#    A: It writes the extra report tables that make_figures.py does not make: all_runs, pl_details, training_cost,
+#       lr_sweep and model_comparison, each as .md and .tex.
+# Q: Where does it fit in the pipeline?
+#    A: After parse_colab_logs.py (runs_from_logs.csv, tuning_from_logs.csv) and eval_from_logs.py (compare_*.csv).
+#       scripts/make_figures.py writes the main tables; this script writes the rest.
+# Q: How is it run and what does it read and write?
+#    A: python scripts/make_report_tables.py [--logs results/logs] [--eval results/summary/eval] [--out results/tables].
+#       It reads the two log CSVs and the compare_<stem>.csv files and writes the tables into --out.
+# Q: Where do the numbers come from?
+#    A: Straight from the CSV files; nothing is estimated here. A cell with a single seed shows '(n=1)' and no spread.
+
 # Display names for the three training variants (plain supervised, pseudo-labelling, class-balanced pseudo-labelling).
 VARIANT = {"supervised": "supervised", "pl": "pseudo-label", "plb": "class-balanced"}
 
 
+# Q: What does this function do?
+#    A: It turns a label fraction such as 0.1 into the text '10%' using FRACTION_LABEL, or a rounded percentage if the
+#       fraction has no fixed label.
+# Q: Why is the value rounded before the lookup?
+#    A: A float like 0.10000000001 would not equal the dictionary key 0.1; rounding to 4 decimals makes the lookup work.
+# Q: Why does this file have its own copy?
+#    A: The same helper in eurosat_le.tables is private (starts with an underscore), so this script keeps its own copy.
 def _frac(f: float) -> str:
     """Label fraction as "1%", "10%", "100%".
 
@@ -51,6 +109,14 @@ def _frac(f: float) -> str:
     return FRACTION_LABEL.get(round(f, 4), f"{f:.0%}")
 
 
+# Q: What does this function do?
+#    A: It formats 'mean ± std' for one table cell after multiplying both numbers by scale (100 gives percent). With
+#       sign=True it always shows + or -, which is used for differences.
+# Q: Why does a missing std give '(n=1)'?
+#    A: A NaN std means only one seed. Printing '± 0.0' would wrongly suggest the seeds agreed perfectly, so the cell
+#       says '(n=1)'.
+# Q: What are the inputs and the output?
+#    A: mean, std, scale, digits and sign; it returns a string.
 def _pm(mean: float, std: float, scale: float = 100.0, digits: int = 1, sign: bool = False) -> str:
     """"mean ± std" in percent points, or "mean (n=1)" when there is no std (one seed).
 
@@ -72,6 +138,14 @@ def _pm(mean: float, std: float, scale: float = 100.0, digits: int = 1, sign: bo
     return fmt.format(mean * scale) + f" ± {std * scale:.{digits}f}"
 
 
+# Q: What does this function do?
+#    A: It builds the table of every finished run with readable names, scores in percent, best epoch and minutes,
+#       ordered by variant, model, input, fraction and seed.
+# Q: Why are temporary sort-key columns added?
+#    A: Alphabetical order would put 'ms' before 'rgb' and the models in the wrong order. Mapping the names to numbers
+#       (0, 1, 2 ...) gives the order used everywhere in the report.
+# Q: What does it return?
+#    A: A DataFrame of display strings; the sort keys are not part of it.
 def all_runs(runs: pd.DataFrame) -> pd.DataFrame:
     """One row per finished run, ordered by variant, model, input, fraction, seed.
 
@@ -95,6 +169,14 @@ def all_runs(runs: pd.DataFrame) -> pd.DataFrame:
         "Minutes": r["minutes"].map("{:.1f}".format)}).reset_index(drop=True)
 
 
+# Q: What does this function do?
+#    A: For every pseudo-label student it shows the threshold tau, the validation precision, how many pool images got a
+#       pseudo-label (and their share), the teacher's and the student's test F1 and the change.
+# Q: How is the teacher's F1 found?
+#    A: Each student row stores its teacher's run name. A Series that maps run_name to test_f1 is used with map() to
+#       look the teacher's score up. Change = student F1 minus teacher F1, in points.
+# Q: What does it return, and when None?
+#    A: A DataFrame of display strings, or None if no run is a student (variant other than 'supervised').
 def pl_details(runs: pd.DataFrame) -> pd.DataFrame | None:
     """Pseudo-label students with their threshold, pool share and the change against their teacher.
 
@@ -126,6 +208,14 @@ def pl_details(runs: pd.DataFrame) -> pd.DataFrame | None:
         "$\\Delta$": ((s["test_f1"] - s["teacher_f1"]) * 100).map("{:+.1f}".format)}).reset_index(drop=True)
 
 
+# Q: What does this function do?
+#    A: For the supervised runs it counts the runs and averages the minutes and the best epoch for each model and label
+#       fraction.
+# Q: Why only the supervised runs?
+#    A: They are the baseline of each model; filtering on variant == 'supervised' keeps the pseudo-label students out of
+#       the averages.
+# Q: What does it return?
+#    A: A DataFrame of display strings, ordered by the fixed model order and then by fraction.
 def training_cost(runs: pd.DataFrame) -> pd.DataFrame:
     """Mean time and best epoch per model and label fraction, for supervised runs.
 
@@ -147,6 +237,12 @@ def training_cost(runs: pd.DataFrame) -> pd.DataFrame:
                          "Mean best epoch": g["epoch"].map("{:.1f}".format)}).reset_index(drop=True)
 
 
+# Q: What does this function do?
+#    A: It formats the learning-rate sweep (validation accuracy and F1 per model and learning rate) and marks the
+#       learning rate that was used for the main experiments.
+# Q: Why are only validation scores shown, and where does the 'Used' mark come from?
+#    A: The rate is chosen on validation data so the test set stays untouched. The chosen pairs are written in the set
+#       'used' in the code (scratch CNN 0.002, ResNet-50 0.0005); if the choice changed, this set must be edited.
 def lr_sweep(tune: pd.DataFrame) -> pd.DataFrame:
     """Learning-rate sweep rows; the rate that was used for all later runs is marked.
 
@@ -167,6 +263,16 @@ def lr_sweep(tune: pd.DataFrame) -> pd.DataFrame:
         "Used": ["yes" if (m, lr) in used else "" for m, lr in zip(t["model"], t["lr"])]}).reset_index(drop=True)
 
 
+# Q: What does this function do?
+#    A: It reads the compare_<stem>.csv files for scratch CNN vs ResNet-50, scratch CNN vs ViT-Small and ResNet-50 vs
+#       ViT-Small and shows, for supervised runs, the mean ± std difference in macro-F1 points (second model minus
+#       first) and how many seeds the second model won.
+# Q: Why is the data 'matched on seed'?
+#    A: Two models trained with the same seed are compared, so the difference is not caused by different random starts.
+#       'Seeds better' is seeds_b_better out of n_seeds.
+# Q: What does it return, and what is the sort key lambda for?
+#    A: A DataFrame, or None if none of the files exist. The lambda maps the modality names to 0 / 1 so RGB comes before
+#       13-band; other columns sort normally.
 def model_comparison(eval_dir: Path) -> pd.DataFrame | None:
     """Supervised model-against-model differences (b minus a, in macro-F1 points), matched on seed.
 
@@ -201,6 +307,15 @@ def model_comparison(eval_dir: Path) -> pd.DataFrame | None:
     return pd.DataFrame(rows) if rows else None
 
 
+# Q: What does main do?
+#    A: It loads runs_from_logs.csv, builds the five tables with their LaTeX captions and sizes, and writes each one as
+#       .md and .tex, printing how many rows were written.
+# Q: Why are some tables skipped?
+#    A: A table that is None or empty (for example model_comparison when no compare_*.csv exists) is reported as
+#       'skipped' instead of crashing the script. The sweep table is only attempted if tuning_from_logs.csv exists.
+# Q: What should you remember about the captions?
+#    A: They are written into the code (for example 'All 51 finished runs'), so they must be updated if the number of
+#       runs changes.
 def main() -> None:
     """Write the five tables."""
     # Build the command-line parser; its description is the first line of this file's docstring.
