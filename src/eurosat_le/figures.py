@@ -70,18 +70,24 @@ def _frac_ticks(ax, fractions) -> None:
     ax.minorticks_off()
 
 
-def _spread(ys: list[float], gap: float) -> list[float]:
+def _spread(ys: list[float], gap: float, top: float | None = None) -> list[float]:
     """Nudge label heights apart so neighbouring labels do not overlap.
 
     `ys` are the desired label heights (data units) and `gap` the minimum spacing. Labels are processed
-    from lowest to highest and only ever pushed UP (never down), so a label can end up above its
-    line end. Returns the adjusted heights in the original input order.
+    from lowest to highest and pushed UP where they are too close. If `top` is given and the pushing
+    would lift the highest label above it, that label is held at `top` and the ones below are pushed
+    DOWN instead, so labels stay inside the axes. Returns the adjusted heights in the original input order.
     """
     order = np.argsort(ys)
     out = np.array(ys, dtype=float)
     for a, b in zip(order[:-1], order[1:]):
         if out[b] - out[a] < gap:
             out[b] = out[a] + gap
+    if top is not None and len(order) and out[order[-1]] > top:
+        out[order[-1]] = top
+        # Walk down from the highest label; each one must be at least `gap` below the one above it.
+        for a, b in zip(order[::-1][:-1], order[::-1][1:]):
+            out[b] = min(out[b], out[a] - gap)
     return list(out)
 
 
@@ -131,8 +137,11 @@ def label_efficiency(groups: pd.DataFrame, path: Path, metric: str = "f1") -> Pa
         _frac_ticks(ax, g["fraction"])
         # Widen the right edge so the direct labels written after the last point fit inside the axes.
         ax.set_xlim(ax.get_xlim()[0], ax.get_xlim()[1] * 2.4)
-        # gap is in score units (0-1 scale); the value was tuned by eye so 7.5 pt labels do not collide.
-        ys = _spread([e[2] for e in ends], gap=0.035)
+        # The spacing is a share of the visible y range (6.5%, about one 7.5 pt label height on this
+        # figure size), so it works whether the scores span 0.5-1.0 or only 0.97-0.99. Labels are kept
+        # inside the axes (top = 2% of the range below the upper edge).
+        lo, hi = ax.get_ylim()
+        ys = _spread([e[2] for e in ends], gap=0.065 * (hi - lo), top=hi - 0.02 * (hi - lo))
         for (m, x, _), y in zip(ends, ys):
             ax.text(x * 1.12, y, MODEL_LABEL[m], color=viz.TEXT_SECONDARY, fontsize=7.5, va="center")
         ax.set_title(MODALITY_LABEL[mod])
