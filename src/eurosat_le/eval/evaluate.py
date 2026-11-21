@@ -144,16 +144,44 @@ def paired_bootstrap(y, pred_a, pred_b, n_boot: int = 1000, seed: int = 0) -> tu
     paired bootstrap). Returns (delta, ci_low, ci_high); the interval is the 2.5th/97.5th percentile of
     the bootstrap deltas, and `delta` is the point estimate on the original test set. The fixed `seed`
     keeps the intervals reproducible.
+
+    Resamples are processed in batches of `_BOOT_BATCH`: the indices of a whole batch are drawn with one
+    `rng.integers` call, the confusion counts come from one `np.bincount`, and macro-F1 is computed for the
+    batch at once. NumPy's Generator fills an [B, N] request element by element from the same bit stream
+    as B separate [N] requests, so the draws (and the result for a given seed) are the same as in a plain
+    per-resample loop and do not depend on the batch size; tests/test_evaluate.py pins the values. Extra
+    memory is about 3 * `_BOOT_BATCH` * N int64 values (about 10 MB for the 4,050 test images).
     """
     rng = np.random.default_rng(seed)
     delta = macro_f1_fast(y, pred_b) - macro_f1_fast(y, pred_a)
+    y, pred_a, pred_b = np.asarray(y), np.asarray(pred_a), np.asarray(pred_b)
     n = len(y)
+    code_a, code_b = y * K + pred_a, y * K + pred_b  # cell of the confusion matrix for each image
     boots = np.empty(n_boot)
-    for i in range(n_boot):
-        idx = rng.integers(0, n, n)
-        boots[i] = macro_f1_fast(y[idx], pred_b[idx]) - macro_f1_fast(y[idx], pred_a[idx])
+    for start in range(0, n_boot, _BOOT_BATCH):
+        stop = min(start + _BOOT_BATCH, n_boot)
+        idx = rng.integers(0, n, (stop - start, n))
+        boots[start:stop] = _batched_macro_f1(code_b[idx]) - _batched_macro_f1(code_a[idx])
     lo, hi = np.percentile(boots, [2.5, 97.5])
     return float(delta), float(lo), float(hi)
+
+
+_BOOT_BATCH = 100
+
+
+def _batched_macro_f1(codes: np.ndarray) -> np.ndarray:
+    """Macro-F1 for each row of `codes` [B, N], where a code is `true * K + predicted`.
+
+    Same formula as `macro_f1_fast`, applied to B resamples with a single bincount (row b gets offset
+    b * K * K). Returns a float array of length B.
+    """
+    b = len(codes)
+    offset = (np.arange(b) * K * K)[:, None]
+    cm = np.bincount((codes + offset).ravel(), minlength=b * K * K).reshape(b, K, K)
+    tp = np.diagonal(cm, axis1=1, axis2=2).astype(float)
+    denom = cm.sum(1) + cm.sum(2)  # predicted count + true count, per class
+    f1 = np.divide(2 * tp, denom, out=np.zeros((b, K)), where=denom > 0)
+    return f1.mean(1)
 
 
 def compare(runs: pd.DataFrame, factor: str, a, b, n_boot: int = 1000) -> pd.DataFrame:
