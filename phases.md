@@ -65,7 +65,7 @@ Legend: `[x]` done · `[ ]` to do · *(optional)* = only if time and compute all
 - [x] YAML configs in `configs/`, one per model; `scripts/train.py` takes `--modality/--fraction/--seed` and `--set key=value` overrides; finished runs are skipped
 - [x] Smoke test (`scripts/smoke_test.py`): every model × input type memorises one batch on CPU with pretrained weights (8/8 pass)
 - [x] Local CPU check: scratch CNN, RGB, 10% labels; validation accuracy 42% → 71% in 5 epochs
-- [x] **Baseline:** ResNet-50, RGB, 100% labels on Colab T4: test accuracy 98.67%, macro-F1 98.63%, best epoch 29 of 30, 43.1 min (target ≥ 97%; the paper reports about 98.6%). Smoke test: 8/8 passed on the GPU.
+- [x] **Baseline:** ResNet-50, RGB, 100% labels on Colab T4: test accuracy 98.67%, macro-F1 98.63%, best epoch 29 of 30, 43.1 min (target ≥ 97%; the paper reports about 98.6%). Smoke test (runs on CPU): 8/8 passed on the Colab machine.
 
 **Done when:** the baseline is reproduced and every model passes the smoke test with both input types.
 
