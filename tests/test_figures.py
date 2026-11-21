@@ -158,3 +158,17 @@ def test_single_seed_cell_shows_zero_spread_and_figure_draws(tmp_path):
         assert cell.rstrip("*").endswith("± 0.0") and "nan" not in cell.lower()
     assert figures.label_efficiency(g, tmp_path / "f1.png").stat().st_size > 1000
     assert figures.label_efficiency(g, tmp_path / "acc.png", metric="acc").stat().st_size > 1000
+
+
+def test_missing_model_or_cell_in_supervised_table(tmp_path):
+    # Protects partial results: a model with no 13-band runs gets no row, and a single missing cell
+    # shows an en dash. Neither may crash the table, and the figure must still be drawn.
+    g = _groups()
+    no_ms = g[~((g["model"] == "vit_small") & (g["modality"] == "ms"))]
+    t = tables.supervised_table(no_ms)
+    assert t.shape == (5, 3) and "ViT-Small, 13 bands" not in t.index and "ViT-Small, RGB (3 bands)" in t.index
+    assert figures.label_efficiency(no_ms, tmp_path / "a.png").exists()
+    no_cell = g[~((g["model"] == "resnet50") & (g["modality"] == "ms") & (g["fraction"] == 0.1))]
+    t = tables.supervised_table(no_cell)
+    assert t.shape == (6, 3) and t.at["ResNet-50, 13 bands", "10%"] == "–"
+    assert t.at["ResNet-50, 13 bands", "1%"] != "–"
