@@ -47,6 +47,16 @@ FRACTION_LABEL = {0.01: "1%", 0.1: "10%", 1.0: "100%"}
 VARIANT_LABEL = {"pl": "pseudo-label (global τ)", "plb": "pseudo-label (class-balanced)"}
 
 
+def metric_columns(metric: str) -> tuple[str, str]:
+    """Names of the mean and std columns of groups.csv for a metric.
+
+    `metric` is "f1" for test macro-F1; any other value means test accuracy. Returns
+    ("test_f1_mean", "test_f1_std") or ("test_acc_mean", "test_acc_std").
+    """
+    name = "f1" if metric == "f1" else "acc"
+    return f"test_{name}_mean", f"test_{name}_std"
+
+
 def _models_present(df: pd.DataFrame) -> list[str]:
     """Models found in `df["model"]`, in the fixed MODELS order (not the order of appearance)."""
     return [m for m in MODELS if m in set(df["model"])]
