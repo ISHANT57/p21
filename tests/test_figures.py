@@ -89,6 +89,16 @@ def test_label_spread_keeps_order_and_gap():
     assert all(b - a >= 0.03 - 1e-9 for a, b in zip(s[:-1], s[1:]))
 
 
+def test_label_spread_stays_below_top():
+    # Real scores end close together near the top of the axes (0.975 to 0.99): labels must be pushed
+    # down inside the axes, not up above them.
+    out = figures._spread([0.975, 0.9863, 0.9876], gap=0.016, top=0.99)
+    assert max(out) <= 0.99 + 1e-9
+    s = sorted(out)
+    assert all(b - a >= 0.016 - 1e-9 for a, b in zip(s[:-1], s[1:]))
+    assert figures._spread([0.5, 0.9], gap=0.03, top=1.0) == [0.5, 0.9]  # nothing to move
+
+
 def test_supervised_table_bolds_best_per_column():
     t = tables.supervised_table(_groups())
     assert t.shape == (6, 3)
