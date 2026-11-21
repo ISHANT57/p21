@@ -87,6 +87,7 @@ def main() -> None:
     p.add_argument("--n-boot", type=int, default=1000)
     p.add_argument("--examples", nargs="*", default=[], metavar="RUN", help="plot misclassified test images")
     args = p.parse_args()
+    t_start = time.perf_counter()  # wall time of the whole evaluation, reported with the final "wrote" line
 
     runs = load_runs(args.runs_dir)
     if runs.empty:
@@ -157,7 +158,7 @@ def main() -> None:
 
     for name in args.examples:
         plot_errors(args.runs_dir / name, out / f"errors_{name}.png")
-    print(f"\nwrote {out}")
+    print(f"\nwrote {out} ({time.perf_counter() - t_start:.1f} s total)")
 
 
 def plot_errors(run_dir: Path, path: Path, n: int = 24, seed: int = 0) -> None:
