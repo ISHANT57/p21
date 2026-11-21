@@ -78,10 +78,10 @@ def count_pairs(runs: pd.DataFrame, factor: str, a, b) -> int:
     Uses the same rule as `eurosat_le.eval.evaluate.compare`: every GROUP key except `factor`, plus the
     seed, must agree.
     """
-    keys = [k for k in GROUP if k != factor] + ["seed"]
-    A = runs[runs[factor] == a].set_index(keys).index
-    B = runs[runs[factor] == b].set_index(keys).index
-    return len(A.intersection(B))
+    keys = [k for k in GROUP if k != factor] + ["seed"]  # what must match: every other factor and the seed
+    A = runs[runs[factor] == a].set_index(keys).index  # settings on side a, e.g. all RGB runs
+    B = runs[runs[factor] == b].set_index(keys).index  # settings on side b, e.g. all 13-band runs
+    return len(A.intersection(B))  # a pair exists only where both sides have the same key
 
 
 def main() -> None:
@@ -168,6 +168,7 @@ def main() -> None:
 
     for name in args.examples:
         plot_errors(args.runs_dir / name, out / f"errors_{name}.png")
+    # The "wrote" line is always printed (as before); only the timing part is a progress message.
     print(f"\nwrote {out}" + ("" if args.quiet else f" ({time.perf_counter() - t_start:.1f} s total)"))
 
 
