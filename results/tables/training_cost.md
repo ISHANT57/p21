@@ -1,0 +1,11 @@
+| Model | Labels | Runs | Mean time (min) | Mean best epoch |
+|---|---|---|---|---|
+| Scratch CNN | 1% | 6 | 4.1 | 43.2 |
+| Scratch CNN | 10% | 6 | 5.0 | 54.2 |
+| Scratch CNN | 100% | 2 | 21.9 | 57.0 |
+| ResNet-50 | 1% | 6 | 8.5 | 20.3 |
+| ResNet-50 | 10% | 6 | 9.3 | 23.2 |
+| ResNet-50 | 100% | 2 | 42.4 | 29.5 |
+| ViT-Small | 1% | 6 | 5.8 | 17.0 |
+| ViT-Small | 10% | 6 | 6.7 | 20.8 |
+| ViT-Small | 100% | 2 | 33.1 | 24.5 |

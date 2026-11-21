@@ -49,6 +49,8 @@ Only the run folders of one lane (ViT-Small at 1% and 10%, and ResNet-50 on 13 b
 2. `python scripts/eval_from_logs.py --runs-dir results/runs` writes `groups.csv` and the `compare_*` files in the same layout as `evaluate.py`. It cross-checks the 13 runs that have a folder against their `metrics.json`: all agree to the four printed decimals.
 3. `python scripts/evaluate.py --out results/summary/eval_laneB` evaluates those 13 runs fully. Their `per_class.csv` and `confusion/` are copied into `results/summary/eval/`, so `make_figures.py --fraction 0.01` can draw the per-class heatmap and confusion matrices of ViT-Small at 1% labels.
 
+4. `python scripts/make_report_tables.py` writes the extra report tables (all runs, pseudo-label details, training cost, the learning-rate sweep from `results/logs/tuning_from_logs.csv`, model-against-model differences) to `results/tables/`.
+
 What differs from a full evaluation, and has to be said wherever these numbers are used:
 
 - **No bootstrap intervals.** A paired comparison is the per-seed difference of two logged macro-F1 values, and `seeds_ci_excludes_0` is empty. Only the ViT-Small RGB versus 13-band comparison has intervals (`results/summary/eval_laneB/`).

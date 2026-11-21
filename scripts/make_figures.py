@@ -15,7 +15,7 @@ confusion/*.csv) and calls eurosat_le.figures and eurosat_le.tables.
 Writes (names fixed in main):
     figures/label_efficiency_f1.png, label_efficiency_acc.png, rgb_vs_ms_gain.png, pseudo_label_gain.png,
     per_class_f1_<fraction>pct.png, confusion_<fraction>pct.png
-    tables/supervised_f1, supervised_acc, semi_supervised, per_class_f1  (each as .md and .tex)
+    tables/supervised_f1, supervised_acc, semi_supervised, per_class_f1_<fraction>pct  (each as .md and .tex)
 
 Design decisions:
 - Every output is one row of the `outputs` list in main: its name for the "skipped" message, whether its
@@ -118,8 +118,11 @@ def main() -> None:
          lambda: table(tab.semi_supervised_table(groups, compare), "semi_supervised",
                        "Pseudo-labelling against the supervised teacher, matched on seed.", wide=True)),
         ("per-class table", bool(best) and per_class is not None,
-         lambda: table(tab.per_class_table(per_class, best, args.fraction), "per_class_f1",
-                       f"Per-class test F1 (\\%) for {fig.MODEL_LABEL[best]}.")),
+         lambda: table(tab.per_class_table(per_class, best, args.fraction),
+                       f"per_class_f1_{args.fraction * 100:g}pct",  # one table per fraction, so runs do not overwrite
+                       f"Per-class test F1 (\\%) of {fig.MODEL_LABEL[best]} at "
+                       f"{fig.FRACTION_LABEL.get(round(args.fraction, 4), f'{args.fraction:.0%}')} of the labels, "
+                       "mean $\\pm$ std over 3 seeds.")),
     ]
 
     made: list[Path] = []

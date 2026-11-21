@@ -1,0 +1,7 @@
+run_name,model,modality,fraction,seed,lr,val_acc,val_f1,best_epoch,minutes,source
+resnet50_rgb_10pct_seed0_tune_lr0.0002,resnet50,rgb,0.1,0,0.0002,0.9645,0.9643,23,9.6,colab_setup.ipynb
+resnet50_rgb_10pct_seed0_tune_lr0.0005,resnet50,rgb,0.1,0,0.0005,0.9669,0.9668,28,9.5,colab_setup.ipynb
+resnet50_rgb_10pct_seed0_tune_lr0.001,resnet50,rgb,0.1,0,0.001,0.9696,0.9691,23,9.5,colab_setup.ipynb
+scratch_cnn_rgb_10pct_seed0_tune_lr0.001,scratch_cnn,rgb,0.1,0,0.001,0.9316,0.9297,48,3.5,colab_setup.ipynb
+scratch_cnn_rgb_10pct_seed0_tune_lr0.002,scratch_cnn,rgb,0.1,0,0.002,0.9331,0.9313,48,3.5,colab_setup.ipynb
+scratch_cnn_rgb_10pct_seed0_tune_lr0.004,scratch_cnn,rgb,0.1,0,0.004,0.9225,0.9207,58,3.4,colab_setup.ipynb
