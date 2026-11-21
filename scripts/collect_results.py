@@ -40,9 +40,66 @@ import yaml
 from eurosat_le.constants import RESULTS_DIR
 from eurosat_le.train.engine import RUNS_DIR
 
+# ==================== CONCEPTS USED IN THIS FILE ====================
+# - argparse: standard-library module that reads command-line options (--runs-dir) into an object.
+# - pandas DataFrame: a table of rows and columns; load_runs returns one row per run and main() filters, groups and
+#   saves it.
+# - json / yaml: json.loads reads metrics.json, env.json and the pseudo-label files; yaml.safe_load reads each run's
+#   config.yaml (the settings that run was trained with).
+# - run folder / metrics.json: every finished run has a folder in results/runs/; metrics.json is written last, so its
+#   presence marks a finished run.
+# - accuracy and macro-F1: accuracy = share of correct predictions; macro-F1 = the F1 score (balance of precision and
+#   recall) computed per class and averaged with equal weight, so rare classes count as much as big ones. Macro-F1 is
+#   the main score here.
+# - validation vs test scores: val_* come from the validation set (used for tuning and early stopping); test_* come from
+#   the test set (final result). Tuning runs have no test scores (NaN).
+# - name_suffix: text in the run's config that tells the kind of run: '' = main grid, 'tune...' = learning-rate sweep,
+#   'pl' / 'plb' (+ digits) = pseudo-label students.
+# - learning-rate sweep (tuning): several learning rates tried on one cell; the best one per model is the row with the
+#   highest validation macro-F1 (idxmax).
+# - mean and sample std over seeds (ddof=1): each setting is run with 3 seeds; the table shows the mean and the sample
+#   standard deviation (divide by n-1). With a single seed the std is NaN, printed as '(n=1)'.
+# - groupby / agg / pivot_table: pandas operations: groupby collects the rows of one setting, agg computes mean/std per
+#   column, pivot_table lays results out as rows = model/input, columns = label fraction.
+# - pseudo-label student vs teacher (paired by seed): each student's config names its teacher; the table compares each
+#   student with that exact teacher run and reports delta = student - teacher (positive = pseudo-labelling helped).
+# - tau and pseudo-label coverage / accuracy: tau = confidence threshold for accepting pseudo-labels; coverage =
+#   selected / pool size (share of unlabelled images that got a pseudo-label); pseudo_acc = share of those pseudo-labels
+#   that were correct (measured afterwards).
+# - regular expression r'^plb?\d*$': pattern that matches the suffixes pl, pl2, plb, plb2, ... to find the student runs.
+# - git commit / device: env.json records which machine (cpu / GPU) and which short git commit produced each run.
+# - FileNotFoundError: raised if a run folder lacks config.yaml or env.json.
+# - if __name__ == '__main__': runs main() only when executed as a script, not when imported.
+# ====================================================================
+#
+# ---- Q&A: THIS FILE ----
+# Q: What is this file for?
+# A: It is the quick summary tool: it gathers every finished run into tables (runs.csv, tuning.csv, supervised.csv,
+#    semi_supervised.csv) from the numbers each run logged during training.
+# Q: How is it different from evaluate.py?
+# A: collect_results.py does not read predictions; it copies the logged metrics. evaluate.py recomputes the final report
+#    numbers (plus ECE, confusion matrices and paired bootstrap comparisons) from the saved predictions.
+# Q: What does it read and write?
+# A: Reads results/runs/*/ (metrics.json, config.yaml, env.json and, for students, pseudo_label_quality.json and
+#    pseudo_label_selection.json). Writes results/summary/*.csv and prints the tables.
+# Q: How is it run?
+# A: python scripts/collect_results.py [--runs-dir PATH], for example a Google Drive copy of the runs.
+
 OUT = RESULTS_DIR / "summary"  # same folder that scripts/evaluate.py writes its eval/ subfolder into
 
 
+# ---- Q&A: load_runs ----
+# Q: What does load_runs() do?
+# A: It visits every run folder that has metrics.json and builds one table row per run: its config fields (model,
+#    modality, fraction, seed, lr, ...), logged metrics (best epoch, train minutes, val and test accuracy/macro-F1),
+#    environment (device, short git commit) and, for students, pseudo-label accuracy, tau and coverage.
+# Q: Why does it skip folders without metrics.json?
+# A: Those runs did not finish (crashed or still running), so their numbers would be incomplete.
+# Q: How is it different from eurosat_le.eval.evaluate.load_runs?
+# A: That one needs saved test predictions and so ignores tuning runs; this one only needs the logged metrics, so it
+#    also includes tuning runs (test columns are NaN).
+# Q: What are the input and the return value?
+# A: Input: the folder that contains the run folders. Returns a pandas DataFrame (empty if no run is finished).
 def load_runs(runs_dir: Path) -> pd.DataFrame:
     """One row per run folder that has metrics.json (sorted by folder name).
 
@@ -89,6 +146,18 @@ def load_runs(runs_dir: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ---- Q&A: main ----
+# Q: What does main() do?
+# A: It loads all runs, saves runs.csv, then prints and saves three summaries: the learning-rate sweep (tuning.csv), the
+#    supervised main grid (mean and std over seeds, supervised.csv) and the pseudo-label students against their teachers
+#    (semi_supervised.csv). Each file is written only if the matching group of runs exists.
+# Q: Why is the student compared with the teacher named in its own config?
+# A: So each student is compared with the exact teacher run it was trained from, not with a guessed match; the
+#    difference is then a fair paired comparison per seed.
+# Q: Why .to_numpy() when copying teacher scores to the student rows?
+# A: To line the values up by position; pandas would otherwise try to align them by the (different) row labels.
+# Q: What are the inputs and what does it return?
+# A: Option --runs-dir (default results/runs). Returns None; stops with a message if no finished run is found.
 def main() -> None:
     """Load all runs, write runs.csv, and print and save the tuning, supervised and pseudo-label summaries."""
     # Build the argument parser; the module docstring doubles as the --help text.

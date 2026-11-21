@@ -32,7 +32,63 @@ from eurosat_le.data.datasets import labelled_ids, make_dataset, split_ids, unla
 from eurosat_le.data.transforms import TwoViews, build_transform
 from eurosat_le.utils import seed_worker
 
+# ====================================================================================================
+# CONCEPTS USED IN THIS FILE
+# - DataLoader: the PyTorch object that takes a Dataset and produces batches of items, optionally shuffled and loaded
+#   by several worker processes. build_loaders returns one for train, val, test and optionally unlabelled.
+# - Batch / batch_size / eval_batch_size: a batch is a group of images processed together. Training uses batch_size
+#   (64 by default); val/test use a larger eval_batch_size (256) because no gradients are stored, so less memory is
+#   needed.
+# - num_workers / persistent_workers: worker processes that prepare batches in parallel (2 by default, matching 2-core
+#   Colab/Kaggle CPUs); persistent workers stay alive between epochs to avoid start-up cost.
+# - pin_memory: puts batches in page-locked memory so copying to the GPU is faster; only turned on when a GPU is
+#   available.
+# - Seed / torch.Generator / worker_init_fn: each loader has its own seeded generator (cfg.seed + offset) controlling
+#   shuffling; seed_worker seeds the random state inside each worker. Together they make augmentation and ordering
+#   reproducible.
+# - RandomSampler with replacement: draws items at random and may pick the same item more than once; num_samples fixes
+#   how many are drawn per epoch.
+# - steps_per_epoch: forces a fixed number of optimiser steps per epoch regardless of how many labelled images there
+#   are, so 1%, 10% and 100% runs get the same training budget.
+# - drop_last / BatchNorm: drop_last discards an incomplete last batch. A batch of size 1 breaks BatchNorm (it cannot
+#   compute a variance), so it is avoided.
+# - Label fraction / labelled subset / subset_seed: a nested subset of train (1%, 10%, 100%) chosen by (fraction,
+#   subset_seed). `seed` (shuffling and augmentation) and `subset_seed` (which subset file) are separate on purpose.
+# - Unlabelled pool and semi-supervised learning: train ids outside the labelled subset are loaded without labels, as
+#   (weak view, strong view) pairs. unlabelled_ratio = 7 means the unlabelled batch is 7x the labelled batch
+#   (FixMatch's mu).
+# - Pseudo-labels (extra_ids / extra_labels): labels predicted by a model for some unlabelled train images; they are
+#   added to the labelled training set. They must not overlap the labelled subset.
+# - Augmentation policies: 'none', 'weak' or 'strong' (see data.transforms); val and test never use augmentation.
+# - Source: cache vs raw / in_memory: pixels come from the packed .npy cache (default, fast) or the original image
+#   files (slow); in_memory loads the whole cache into RAM.
+# - dataclass: a Python decorator that generates __init__ and similar methods from the annotated fields, used for the
+#   settings class DataConfig.
+# ====================================================================================================
+#
+# FILE-LEVEL Q&A
+# Q: What is this file for?
+# A: It is the single factory that turns one DataConfig into the DataLoaders (train, val, test and optionally
+#    unlabelled) used by every experiment.
+# Q: Where does it fit in the pipeline?
+# A: It is the last step of the data pipeline: it combines the split files, labelled subsets, datasets (data.datasets)
+#    and augmentation (data.transforms). The training code calls build_loaders.
+# Q: What does it read and write?
+# A: It reads through make_dataset (split files, cache, norm stats) and writes nothing.
+# Q: Why are val and test loaders identical for every condition?
+# A: So results at different label fractions are evaluated on exactly the same images and are comparable; only the
+#    training set changes.
 
+
+# Q: What does this class do?
+# A: DataConfig bundles all settings needed by build_loaders (input type, label fraction, batch sizes, augmentation,
+#    seeds, pseudo-label extras, ...) with default values.
+# Q: Why a dataclass instead of many function arguments?
+# A: One object can be created once, passed around, copied or saved, and its fields document the allowed values;
+#    adding a setting does not change every function signature.
+# Q: Why are seed and subset_seed separate?
+# A: seed controls shuffling and augmentation; subset_seed only picks which labelled subset file is used. Changing one
+#    without the other lets us vary the training randomness while keeping the same labelled images.
 @dataclass
 class DataConfig:
     """Everything build_loaders needs; the field comments describe the allowed values.
@@ -58,6 +114,17 @@ class DataConfig:
     extra_labels: list[int] | None = None  # their pseudo-labels (aligned with extra_ids)
 
 
+# Q: What does this function do?
+# A: It creates a DataLoader with the project's common settings (workers, pinned memory, persistent workers, seeded
+#    generator, seed_worker).
+# Q: Why does each loader get its own generator and an offset?
+# A: The generator is seeded with cfg.seed + offset, so shuffling is reproducible and different loaders (train,
+#    unlabelled) do not share one random stream.
+# Q: What are the inputs and what does it return?
+# A: ds, batch_size, cfg, shuffle, sampler, drop_last, offset. It returns a DataLoader. If a sampler is given it takes
+#    precedence over shuffle (shuffle is then False).
+# Q: Why pin_memory only if CUDA is available?
+# A: Pinned memory only helps CPU-to-GPU copies; without a GPU it would just waste memory.
 def _loader(ds, batch_size, cfg, shuffle=False, sampler=None, drop_last=False, offset=0):
     """DataLoader with the project's common settings.
 
@@ -85,6 +152,21 @@ def _loader(ds, batch_size, cfg, shuffle=False, sampler=None, drop_last=False, o
     )
 
 
+# Q: What does this function do?
+# A: It builds the datasets for the labelled train subset, the full val and test splits and, optionally, the
+#    unlabelled pool, and wraps each in a DataLoader.
+# Q: Why is steps_per_epoch implemented with RandomSampler(replacement=True)?
+# A: 1% of train is only about 2 batches. Sampling with replacement lets a tiny labelled set still fill a fixed step
+#    budget, so every label fraction trains for the same number of optimiser steps.
+# Q: Why must pseudo-labelled extras be outside the labelled subset?
+# A: Otherwise one image would appear twice, once with its true label and once with a pseudo-label. The labelled ids
+#    keep their true labels; only the extras use the supplied ones.
+# Q: Why is drop_last set only when the train set is larger than one batch?
+# A: To avoid a final batch of size 1, which breaks BatchNorm; if the data is smaller than one batch, dropping would
+#    leave no batches at all.
+# Q: What are the inputs and what does it return?
+# A: cfg (a DataConfig). It returns a dict with 'train', 'val', 'test' and, if cfg.unlabelled is set and the pool is
+#    not empty, 'unlabelled' (batches of (weak, strong) image pairs with no labels).
 def build_loaders(cfg: DataConfig) -> dict[str, DataLoader]:
     """Return loaders: train, val, test, and (if cfg.unlabelled and the pool is non-empty) unlabelled.
 

@@ -41,6 +41,66 @@ import pandas as pd
 # Project helper that summarises a table of per-seed pairs, so the output columns match evaluate.py exactly.
 from eurosat_le.eval.evaluate import summarise_comparison
 
+# ======================================================================
+# CONCEPTS USED IN THIS FILE
+# ======================================================================
+# seed: the number that fixes the random choices of one training run. Every setting is trained several times with
+#   different seeds (the run names end in seed0, seed1, ...), so one lucky or unlucky run does not decide the result.
+#   Used as the 'seed' column.
+# setting (group): one combination of model, modality, fraction and variant (the GROUP list). The seeds of a setting are
+#   averaged in groups_table.
+# modality: the kind of input image, 'rgb' (3 colour bands) or 'ms' (all 13 satellite bands). Column 'modality'.
+# fraction: the share of the labelled training images that was used (0.01, 0.1, 1.0). Column 'fraction'.
+# variant: 'supervised' (normal training), 'pl' (pseudo-labelling with one global threshold) or 'plb' (class-balanced
+#   pseudo-labelling). Used in the COMPARISONS list.
+# pseudo-labelling: a trained teacher model labels unlabelled images itself, and a student model is trained on these
+#   extra labels. The student runs are the 'pl' and 'plb' variants compared with 'supervised' here.
+# accuracy: the share of test images classified correctly. Column test_acc.
+# macro-F1: the F1 score (harmonic mean of precision and recall) computed for each class and then averaged with equal
+#   weight per class, so small classes count as much as big ones. Column test_f1.
+# validation set vs test set: validation data is used to pick the best epoch; the test set is only for the final score.
+#   Columns val_f1 (validation) and test_acc / test_f1 (test).
+# mean and sample standard deviation over seeds: the average of the per-seed scores and their spread, with n-1 in the
+#   denominator (pandas default, ddof=1). With one seed the std is undefined, so it is NaN. Computed in groups_table
+#   with groupby().agg(...).
+# paired difference: for two runs that differ in only one factor (and share the seed), the score of b minus the score of
+#   a. Pairing removes the seed-to-seed noise. Built in pairs_table as delta_f1 = f1_b - f1_a.
+# bootstrap confidence interval: a range for a statistic found by re-sampling the test predictions many times. It needs
+#   per-image predictions, which the logs do not hold, so ci_low / ci_high are left empty here.
+# ECE (expected calibration error): how far the model's confidence is from its real accuracy. Not in the logs, so
+#   test_ece_mean is an empty column here.
+# NaN (np.nan): pandas' 'not a number' marker, written as an empty cell in the CSV. Used for every value that cannot be
+#   computed from the logs.
+# CSV and DataFrame: a CSV is a plain-text table; a pandas DataFrame is the same table in memory. read_csv loads it,
+#   to_csv(index=False) saves it without the row numbers.
+# groupby / agg: split a table into groups of rows sharing the same key values, then compute summaries (count of
+#   distinct seeds, mean, std) for each group. Used in groups_table.
+# set_index and Index.intersection: put the matching keys into the row index so the 'a' runs and the 'b' runs can be
+#   lined up; the intersection keeps only the keys present on both sides. Used in pairs_table.
+# metrics.json cross-check: the training code saved exact test numbers for runs whose folder was kept; the log prints
+#   them rounded to 4 decimals, so a difference above 0.00006 (a bit more than the rounding error 0.00005) is reported.
+#   Used in cross_check.
+# argparse: the standard-library module that turns command-line options (--logs, --out, --runs-dir) into Python values.
+#   Used in main.
+
+# ======================================================================
+# Q&A ABOUT THIS FILE (file-level viva questions)
+# ======================================================================
+# Q: What is this file for?
+#    A: It builds the evaluation tables (groups.csv, compare_<stem>_pairs.csv, compare_<stem>.csv) from the per-run
+#       scores in runs_from_logs.csv, for the runs whose folders and predictions were not kept (Colab lanes A and C).
+# Q: Where does it fit in the pipeline?
+#    A: parse_colab_logs.py reads the notebook logs and writes runs_from_logs.csv; this script turns that into
+#       results/summary/eval/*.csv with the same file names as scripts/evaluate.py; make_figures.py and
+#       make_report_tables.py then read those files without any change.
+# Q: How is it run and what does it read and write?
+#    A: python scripts/eval_from_logs.py [--logs ...] [--out ...] [--runs-dir ...]. It reads runs_from_logs.csv (and,
+#       only with --runs-dir, the metrics.json of each kept run folder) and writes groups.csv plus one pairs file and
+#       one summary file per comparison that has data.
+# Q: What is missing compared with evaluate.py, and why?
+#    A: No bootstrap intervals, no calibration (ECE), no per_class.csv and no confusion matrices, because those need the
+#       saved predictions and the logs only contain the printed scores.
+
 # The columns that together identify one experimental setting; seeds are averaged inside a setting.
 GROUP = ["model", "modality", "fraction", "variant"]
 # The pairwise comparisons to make: (output file name stem, column being compared, value "a", value "b").
@@ -55,6 +115,16 @@ COMPARISONS = [  # same list as scripts/evaluate.py: (file stem, factor, a, b); 
 ]
 
 
+# Q: What does this function do?
+#    A: For every setting (model, modality, fraction, variant) it counts the seeds and computes the mean and sample std
+#       of test accuracy and test macro-F1 and the mean validation F1. One row per setting.
+# Q: Why is test_ece_mean inserted as an empty column, and why can a std be NaN?
+#    A: The empty column keeps the column order identical to the groups.csv written by evaluate.py, so the later code
+#       works on either file. The std is NaN when a setting has only one seed, because the sample std needs at least two
+#       values; the tables then print '(n=1)'.
+# Q: What are the input and the output?
+#    A: Input: a DataFrame with one row per finished run (model, modality, fraction, variant, seed, test_acc, test_f1,
+#       val_f1). Output: a DataFrame with one row per setting.
 def groups_table(runs: pd.DataFrame) -> pd.DataFrame:
     """Mean and sample std over seeds per setting (std is NaN for one seed), as evaluate.py writes it.
 
@@ -79,6 +149,19 @@ def groups_table(runs: pd.DataFrame) -> pd.DataFrame:
     return g
 
 
+# Q: What does this function do?
+#    A: It pairs every run with factor == a with the run with factor == b that has the same other settings and the same
+#       seed, and records both scores and delta_f1 = f1_b - f1_a.
+# Q: Why must the other settings and the seed match?
+#    A: So that only the compared factor (for example RGB versus 13 bands) differs between the two runs. Then the
+#       difference is caused by that factor and not by a different seed or label fraction, and the seed-to-seed noise
+#       cancels in the difference.
+# Q: Why are ci_low and ci_high empty?
+#    A: A bootstrap interval is computed from per-image predictions. The logs contain only summary scores, so there is
+#       nothing to re-sample; the columns are kept (as NaN) so the files match evaluate.py.
+# Q: What does it return, and what happens when a run has no partner?
+#    A: A DataFrame with one row per matched pair (empty if there is none). A run without a partner is simply ignored,
+#       because only keys present on both sides are visited.
 def pairs_table(runs: pd.DataFrame, factor: str, a: str, b: str) -> pd.DataFrame:
     """Per-seed pairs where only `factor` differs (a -> b); delta_f1 = f1_b - f1_a; no bootstrap interval.
 
@@ -112,6 +195,15 @@ def pairs_table(runs: pd.DataFrame, factor: str, a: str, b: str) -> pd.DataFrame
     return pd.DataFrame(rows)
 
 
+# Q: What does this function do?
+#    A: For every logged run whose folder was kept, it reads metrics.json and compares the saved test accuracy and
+#       macro-F1 with the numbers in the log, then prints how many runs were checked and which differ.
+# Q: Why is the tolerance 0.00006?
+#    A: The log prints 4 decimals, so rounding alone can differ from the exact value by up to 0.00005. Anything larger
+#       means the log and the saved metrics really disagree.
+# Q: Why are runs without a folder skipped, and what does it return?
+#    A: Lanes A and C have no run folders, so there is nothing to compare with. The function returns nothing; its result
+#       is the printed summary line and one line per disagreement.
 def cross_check(runs: pd.DataFrame, runs_dir: Path) -> None:
     """Compare logged numbers with metrics.json for every run that has a folder; print the outcome.
 
@@ -146,6 +238,17 @@ def cross_check(runs: pd.DataFrame, runs_dir: Path) -> None:
         print("  " + line)
 
 
+# Q: What does main do, step by step?
+#    A: It reads the options, loads runs_from_logs.csv, optionally runs the cross-check, writes groups.csv, and then for
+#       each entry of COMPARISONS builds the per-seed pairs, saves them, summarises them over seeds and saves the
+#       summary.
+# Q: Why is a comparison skipped when pairs is empty?
+#    A: If the logs have no matching runs for it (for example a model that was not run), writing an empty file would
+#       only mislead the figure and table code, which treats a missing file as 'no data'.
+# Q: Why reuse summarise_comparison and then set seeds_ci_excludes_0 to NaN?
+#    A: Reusing evaluate.py's function gives exactly the same columns. Without intervals that function would count 0
+#       seeds whose interval excludes zero, which would wrongly look like a real result, so the column is overwritten
+#       with empty values.
 def main() -> None:
     """Write groups.csv and the compare_* files for every comparison that has at least one pair."""
     # Build the command-line parser; its description is the first line of this file's docstring.

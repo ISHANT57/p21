@@ -36,7 +36,62 @@ from eurosat_le.data import splits
 # build_index lists every image with its class; check_modalities_match compares the RGB and MS folders.
 from eurosat_le.data.index import build_index, check_modalities_match
 
+# ==================== CONCEPTS USED IN THIS FILE ====================
+# - argparse: standard-library module that reads command-line options (--check, --force) into an object; used in main().
+# - train / validation / test split: train is used to fit the model, validation to choose settings and stop early, test
+#   only for the final score. They must not share any image.
+# - stratified split: the split keeps the same share of every class in train, val and test (70/15/15 of each class), so
+#   no class is under-represented.
+# - seed (SPLIT_SEED = 42): a fixed number that makes the 'random' split identical on every machine, so every model is
+#   tested on the same images.
+# - labelled subsets (1%, 10%, 100%) and SUBSET_SEEDS: small label budgets drawn from train only; one independent draw
+#   per seed (0, 1, 2) so results can be averaged.
+# - nested subsets: the 1% subset lies inside the 10% subset, which lies inside the 100% subset, so adding labels never
+#   removes an image already used.
+# - unlabelled pool: train minus the labelled subset; used by the semi-supervised (pseudo-label) experiments without its
+#   labels.
+# - data leakage: when information from validation or test data influences training. verify() checks there is no overlap
+#   between splits, subsets lie inside train, and nesting holds.
+# - manifest + SHA-256: manifest.json stores a SHA-256 fingerprint of every split file; check_integrity() recomputes
+#   them, so any later edit of a split file is detected.
+# - index (build_index): a table of every image with its id, class name and class number, built from the RGB folder and
+#   sorted in a fixed order.
+# - --check vs --force: --check only verifies existing files; --force allows regenerating them (which changes every
+#   result, so it must be explicit).
+# - SystemExit / assert: SystemExit stops the script with a message; assert stops with an error when a condition that
+#   must be true is false.
+# - json: text format used for manifest.json; json.loads reads it, json.dumps prints parts of it.
+# - if __name__ == '__main__': runs main() only when executed as a script, not when imported.
+# ====================================================================
+#
+# ---- Q&A: THIS FILE ----
+# Q: What is this file for?
+# A: It creates (once) the fixed train/val/test split and the nested labelled subsets, or verifies them with --check. It
+#    is step 2 of the pipeline.
+# Q: What does it read and write?
+# A: It reads the image file names under data/raw/ (RGB, and MS if present). It writes splits/split.csv,
+#    splits/subsets/*.txt and splits/manifest.json. With --check it writes nothing.
+# Q: Why must everyone use the committed split files instead of regenerating them?
+# A: A different split would put different images in train/val/test, so results of different people or machines could
+#    not be compared. That is why overwriting needs --force.
+# Q: How is it run?
+# A: python scripts/make_splits.py (first time), python scripts/make_splits.py --check (verify), --force only to
+#    deliberately regenerate.
 
+
+# ---- Q&A: main ----
+# Q: What does main() do?
+# A: It builds the image index, checks that the RGB and 13-band folders match (if both exist), then either verifies the
+#    stored split (--check) or builds, verifies and saves a new split with its subsets and manifest.
+# Q: Why does the --check branch compare the ids in split.csv with the ids on disk?
+# A: To make sure the split covers exactly the images that are present. If files were added or lost, the split would
+#    silently be wrong.
+# Q: Why does it refuse to overwrite an existing split without --force?
+# A: Regenerating would change which images are in train/val/test, and therefore every result already produced; the
+#    script makes this an explicit decision.
+# Q: What are the inputs and what does it return?
+# A: Options --check and --force from the command line. Returns None; it prints a summary (seed, number of samples,
+#    counts per split, size of every subset) and writes files into splits/.
 def main() -> None:
     """Create the train/val/test split and labelled subsets, or (with --check) verify the existing ones.
 

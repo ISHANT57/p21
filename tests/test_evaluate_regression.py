@@ -26,11 +26,63 @@ from test_evaluate import make_run  # reuse the fake-run builder, so both test f
 # REPO_ROOT: to find scripts/evaluate.py.
 from eurosat_le.constants import REPO_ROOT
 
+# ====================================================================================================
+# CONCEPTS USED IN THIS FILE (study notes)
+# ====================================================================================================
+# - regression test: a test that checks that the output of a program has NOT changed after a code change
+#     (refactoring, speed-up). It does not prove the numbers are right, only that they are the same as before.
+# - golden (expected) file: the saved correct output, here tests/data/groups.csv and
+#     tests/data/compare_rgb_vs_ms.csv, committed to git. The new output is compared with it.
+# - end-to-end test: runs the real script scripts/evaluate.py as a separate process (subprocess) instead of calling
+#     one function.
+# - fixture (@pytest.fixture) and scope='module': a fixture builds shared input. With scope='module' it runs ONCE
+#     for the whole file, so the (slow) script is not run again for every test case.
+# - tmp_path_factory: a pytest fixture that creates temporary folders (mktemp). It is used instead of tmp_path
+#     because tmp_path cannot be used by a module-scoped fixture.
+# - pytest.mark.parametrize: runs the same test once per value in FILES: groups.csv and compare_rgb_vs_ms.csv (2
+#     cases).
+# - synthetic / fake runs: make_run (imported from test_evaluate.py) writes fake run folders with random predictions
+#     for the real val/test ids; no model is trained.
+# - determinism: everything is reproducible: fake predictions are seeded from the run name, and the bootstrap has a
+#     fixed seed, so the same code always writes the same tables.
+# - bootstrap / N_BOOT: resampling of test images to get a confidence interval; N_BOOT = 50 resamples keeps the test
+#     fast (the real default is 1000).
+# - absolute tolerance (atol) vs relative (rtol): floats may differ by at most 1e-9 in absolute terms (rtol=0), so
+#     small and large numbers are held to the same bar. Text, column names and row count must match exactly.
+# - pandas.testing.assert_frame_equal: pandas' function that compares two tables cell by cell and fails with a
+#     readable difference.
+# - UPDATE_EXPECTED environment variable: a deliberate switch: UPDATE_EXPECTED=1 pytest ... overwrites the golden
+#     files with the new output. Only done when a result is meant to change (then review git diff tests/data).
+# - import from a sibling test file: `from test_evaluate import make_run` works because pytest puts the tests folder
+#     on the import path; it avoids duplicating the fake-run builder.
+
+# ====================================================================================================
+# Q&A ABOUT THIS FILE (viva practice)
+# ====================================================================================================
+# Q: Which part of the project does this file protect?
+# A: The numbers that scripts/evaluate.py writes (groups.csv and compare_rgb_vs_ms.csv). If a refactor or speed-up
+#    silently changes a result in the report, this test fails.
+# Q: How do you run it, and how do you refresh the expected files?
+# A: pytest tests/test_evaluate_regression.py. To refresh on purpose: UPDATE_EXPECTED=1 pytest
+#    tests/test_evaluate_regression.py, then review git diff tests/data/ and commit (say why in the PR).
+# Q: Why is no real data needed?
+# A: Four fake runs (2 seeds x RGB/13-band, ResNet-50, 1% labels) are generated in a temporary folder. They need the
+#    committed splits/split.csv for the real image ids but no images and no training.
+
 DATA = Path(__file__).parent / "data"  # expected tables, committed with the test
 FILES = ["groups.csv", "compare_rgb_vs_ms.csv"]  # main results table + one paired comparison (uses the bootstrap)
 N_BOOT = 50  # few resamples keep the test fast; the bootstrap seed is fixed, so the interval is reproducible
 
 
+# Q: What does the eval_out fixture do?
+# A: Builds 4 fake runs (resnet50, rgb at 80% and ms at 88% accuracy, seeds 0 and 1), runs scripts/evaluate.py on
+#    them with --n-boot 50, asserts exit code 0, and returns the output folder.
+# Q: Why scope='module'?
+# A: The script is slow compared with a unit test. Running it once and sharing the output between both parametrised
+#    cases saves time.
+# Q: Why two seeds?
+# A: With two seeds groups.csv has a standard deviation, and the RGB-vs-13-band comparison has 2 pairs, so the
+#    bootstrap column is exercised.
 # scope="module": the script runs once and all tests in this file reuse its output.
 @pytest.fixture(scope="module")
 def eval_out(tmp_path_factory):
@@ -51,6 +103,17 @@ def eval_out(tmp_path_factory):
     return out
 
 
+# Q: What does test_evaluation_tables_unchanged check?
+# A: The table the script just wrote (groups.csv or compare_rgb_vs_ms.csv) equals the committed expected table:
+#    numbers within 1e-9, everything else exactly.
+# Q: What bug would make it fail?
+# A: Any change in the maths (F1, ECE, bootstrap), in the grouping or pairing, in column names or order, or in the
+#    number of rows.
+# Q: What happens with UPDATE_EXPECTED set?
+# A: The expected file is overwritten with the new output (12 significant digits, far below the tolerance) before
+#    the comparison, so the test then passes. It is never overwritten by default.
+# Q: Which functions does it exercise?
+# A: The whole evaluate.py pipeline: load_runs, run_metrics, grouping over seeds, and compare/paired_bootstrap.
 # One test case per table name in FILES.
 @pytest.mark.parametrize("name", FILES)
 def test_evaluation_tables_unchanged(eval_out, name):

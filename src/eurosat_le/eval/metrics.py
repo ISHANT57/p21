@@ -26,6 +26,48 @@ from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precisio
 from eurosat_le.constants import CLASSES
 
 
+# ======================================== CONCEPTS USED IN THIS FILE ========================================
+# accuracy: share of images whose predicted class equals the true class. Simple, but can hide poor results on small
+#   classes.
+# precision (per class): of the images predicted as a class, the fraction that really are that class. recall: of the
+#   images that really are the class, the fraction found.
+# F1 score: harmonic mean of precision and recall for one class (high only when both are high).
+# macro-F1: the unweighted mean of the 10 per-class F1 scores, so every class counts equally regardless of size. This is
+#   the project's main metric.
+# support: the number of true images of a class in the evaluated set.
+# confusion matrix: a table of counts; row = true class, column = predicted class. The diagonal holds correct
+#   predictions, off-diagonal cells are the mistakes.
+# labels=list(range(10)) and zero_division=0: always report all 10 classes in a fixed order, and score a class that
+#   never appears as 0 instead of raising a warning.
+# integer class indices: classes are numbers 0..9 in the order of constants.CLASSES; names are only attached when
+#   building the report.
+# JSON-serialisable: only plain Python floats / ints / lists, so the result can be saved in metrics.json (NumPy types
+#   are converted with float()/int()).
+# sklearn.metrics: the scikit-learn library's well-tested scoring functions, used instead of re-implementing the
+#   formulas.
+
+# ======================================== Q&A ABOUT THIS FILE ========================================
+# Q: What is this file for?
+# A: It holds the metric functions shared by training and evaluation: a full report (classification_metrics) and a cheap
+#   one (summary).
+# Q: Where does it fit in the pipeline?
+# A: train/engine.py uses summary every epoch (validation) and classification_metrics when a run ends (metrics.json);
+#   eval/evaluate.py recomputes the same numbers from saved predictions and compares them.
+# Q: What does it read and write?
+# A: Nothing on disk. It takes integer arrays of true and predicted labels and returns dicts.
+# Q: Why use one shared implementation?
+# A: Training and evaluation then compute metrics identically, so the recomputed numbers can be cross-checked against
+#   metrics.json.
+
+# Q: What does classification_metrics return?
+# A: A dict with accuracy, macro_f1, per_class (precision, recall, f1, support for each class name) and confusion_matrix
+#   (raw counts as a nested list).
+# Q: Why pass labels=list(range(len(CLASSES))) everywhere?
+# A: So all 10 classes always appear with a fixed shape and order, even if one is missing from y_true / y_pred; without
+#   it the arrays could change size and misalign.
+# Q: Why macro-F1 in addition to accuracy?
+# A: Macro-F1 averages the classes equally, so a weak class is not hidden by strong ones; this matters most with few
+#   labels.
 def classification_metrics(y_true, y_pred) -> dict:
     """Full metrics report for integer labels `y_true` and predictions `y_pred` (same length).
 
@@ -57,6 +99,11 @@ def classification_metrics(y_true, y_pred) -> dict:
     }
 
 
+# Q: What does summary do and why does it exist separately?
+# A: It returns only accuracy and macro-F1. It is cheap, so the training loop can log it after every epoch (it is the
+#   validation score used for model selection) without building the full report.
+# Q: What are the inputs?
+# A: y_true and y_pred, lists or arrays of integer labels of the same length; np.asarray lets either work.
 def summary(y_true, y_pred) -> dict:
     """Accuracy and macro-F1 only (cheap, for per-epoch logging).
 

@@ -40,12 +40,72 @@ from sklearn.model_selection import train_test_split
 # Class list, label fractions, seeds and the default splits folder.
 from eurosat_le.constants import CLASSES, LABEL_FRACTIONS, SPLIT_SEED, SPLITS_DIR, SUBSET_SEEDS
 
+# ====================================================================================================
+# CONCEPTS USED IN THIS FILE
+# - Train / validation / test split: train = data the model learns from; validation = data used to tune and pick the
+#   best epoch; test = data used once for the final score. Here 70% / 15% / 15% of the 27,000 images. split.csv stores
+#   which split each id is in.
+# - Stratified split: each class is divided in the same proportions, so train, val and test all contain about the same
+#   share of every class. Done with scikit-learn's train_test_split(stratify=label).
+# - Seed / random_state: a number that fixes the random choices. SPLIT_SEED makes the split identical every time; the
+#   subset seed (0, 1, 2) makes independent labelled-subset draws.
+# - Label fraction / labelled subset: only a fraction (1%, 10%, 100%) of the training images are treated as labelled.
+#   This is the label-efficiency experiment.
+# - Nested subsets: every smaller subset is contained in the larger one (1% inside 10% inside 100%). It is done by
+#   shuffling each class once and taking prefixes of the same shuffled list.
+# - Permutation / prefix: a random re-ordering of a list (rng.permutation); a prefix is its first k items.
+# - np.random.default_rng: NumPy's modern seeded random generator; the same seed always gives the same permutations.
+# - Rounding and 'at least 1': k = round(fraction * class size), but never less than 1, so even 1% keeps every class.
+#   Python's round() sends exact halves to the nearest even number.
+# - Data leakage: when information from validation/test data gets into training, making scores look better than they
+#   are. verify() asserts there is none (no overlapping ids, subsets only from train).
+# - Unlabelled pool: the training ids that are NOT in the labelled subset; used later for semi-supervised learning
+#   (see data.datasets.unlabelled_ids).
+# - split.csv / subsets/*.txt / manifest.json: split.csv holds id, class, label, split for all samples; each subset
+#   file lists the labelled ids of one (fraction, seed); manifest.json records seeds, counts and a hash of every file.
+# - SHA-256 / checksum / integrity: a fingerprint of a file's bytes. The manifest stores it for each file;
+#   check_integrity recomputes it to detect accidental edits or regeneration.
+# - DataFrame (pandas) and index alignment: a table of rows and columns; rows are matched by their index, which is how
+#   the split names are written back to the right rows (out.loc[...]).
+# - Type hints / defaults: dict[float, list[str]] means a dictionary from fraction to list of ids; default arguments
+#   come from constants.py.
+# ====================================================================================================
+#
+# FILE-LEVEL Q&A
+# Q: What is this file for?
+# A: It creates the fixed train/val/test split and the nested labelled subsets, checks them for leakage, writes them
+#    to splits/, and reads them back for the rest of the project.
+# Q: Where does it fit in the pipeline?
+# A: After data.index. scripts/make_splits.py calls build_all() then save() once; the files in splits/ are committed
+#    to git and read by data.cache, data.datasets and training through load_split / load_subset.
+# Q: What does it read and write?
+# A: It writes splits/split.csv, splits/subsets/train_<pct>pct_seed<k>.txt and splits/manifest.json. It reads
+#    split.csv and the subset files back, and manifest.json for the integrity check.
+# Q: Why is the split fixed and stored in files?
+# A: So every model, input type and run is evaluated on exactly the same test images and trained on the same labelled
+#    subsets; otherwise results would not be comparable.
+
+# Q: What are SPLIT_FILE and SUBSET_DIR?
+# A: Fixed names: 'split.csv' is the split table and 'subsets' is the sub-folder with one text file per labelled
+#    subset; shared by save and the loaders so they agree.
 # File name of the main split table inside the splits folder.
 SPLIT_FILE = "split.csv"
 # Sub-folder (inside the splits folder) that holds one text file per labelled subset.
 SUBSET_DIR = "subsets"
 
 
+# Q: What does this function do?
+# A: It divides all samples into train, val and test (70/15/15 by default), keeping the class proportions, and returns
+#    a copy of the table with a 'split' column.
+# Q: Why is the validation fraction val / (1 - test)?
+# A: Validation is taken from what is left after the test set is removed (85% of the data). To end up with 15% of ALL
+#    samples, 0.15 / 0.85 of the remainder is needed.
+# Q: Why use stratify and a seed?
+# A: Stratify keeps each class equally represented in every split; the fixed seed makes the split identical on every
+#    run and machine.
+# Q: What are the inputs and what does it return?
+# A: index (DataFrame with id, class, label), seed, val, test. It returns a copy of index with an extra 'split' column
+#    and does not change the input table.
 def make_split(index: pd.DataFrame, seed: int = SPLIT_SEED, val: float = 0.15, test: float = 0.15) -> pd.DataFrame:
     """Return a copy of `index` with a `split` column in {train, val, test}.
 
@@ -78,6 +138,19 @@ def make_split(index: pd.DataFrame, seed: int = SPLIT_SEED, val: float = 0.15, t
     return out
 
 
+# Q: What does this function do?
+# A: For one subset seed it builds the labelled subsets for every fraction (e.g. 1%, 10%, 100%) of the training set,
+#    as lists of ids.
+# Q: Why are the subsets nested and taken per class?
+# A: Each class's training ids are shuffled once and every fraction takes the first k of that same order, so 1% is
+#    inside 10% inside 100%. Doing it per class keeps class proportions, and nesting makes label-efficiency curves
+#    comparable because going to more labels only adds examples.
+# Q: Why at least one id per class, and why are the lists re-sorted?
+# A: max(1, ...) guarantees that even the 1% subset contains every class. Re-sorting into split.csv order makes the
+#    written files independent of the shuffle order.
+# Q: What are the inputs and what does it return?
+# A: split_df (output of make_split), fractions, seed. It returns a dict {fraction: sorted list of train ids}. Only
+#    train rows are used, so no val or test id can appear.
 def make_label_subsets(split_df: pd.DataFrame, fractions=LABEL_FRACTIONS, seed: int = 0) -> dict[float, list[str]]:
     """Return {fraction: sorted list of train ids}, nested and class-stratified.
 
@@ -116,6 +189,12 @@ def make_label_subsets(split_df: pd.DataFrame, fractions=LABEL_FRACTIONS, seed: 
     return {f: sorted(v, key=order.__getitem__) for f, v in subsets.items()}
 
 
+# Q: What does this function do?
+# A: It builds the file name of a subset, e.g. fraction 0.01 and seed 0 give 'train_1pct_seed0.txt'.
+# Q: Why is the same function used for writing and reading?
+# A: save and load_subset both call it, so the writer and the reader can never disagree about the name.
+# Q: What are the inputs and what does it return?
+# A: fraction (float) and seed (int). It returns a string; '%g' formatting drops trailing zeros (1.0 gives '100').
 def subset_filename(fraction: float, seed: int) -> str:
     """File name of a subset, e.g. fraction=0.01, seed=0 -> "train_1pct_seed0.txt" (%g drops trailing zeros).
 
@@ -127,6 +206,18 @@ def subset_filename(fraction: float, seed: int) -> str:
     return f"train_{fraction * 100:g}pct_seed{seed}.txt"
 
 
+# Q: What does this function do?
+# A: It asserts that the split and the subsets are leak-free and well formed (unique ids, disjoint splits, subsets
+#    inside train and nested, 100% subset equals train, every class in the smallest subset).
+# Q: Why is this needed? What would go wrong without it?
+# A: If a test image were also in train, or a subset contained a non-train image, the reported accuracy would be
+#    unfairly high. The assertions stop the pipeline instead of silently producing invalid experiments.
+# Q: What are the inputs and what does it return?
+# A: split_df and subsets ({subset_seed: {fraction: ids}}). It returns None; it raises AssertionError at the first
+#    failed check.
+# Q: Why check that the smallest subset contains every class?
+# A: A 1% subset that missed a class would make that class impossible to learn and would distort the label-efficiency
+#    results.
 def verify(split_df: pd.DataFrame, subsets: dict[int, dict[float, list[str]]]) -> None:
     """Assert the split and subsets have no leakage and the expected structure.
 
@@ -171,6 +262,12 @@ def verify(split_df: pd.DataFrame, subsets: dict[int, dict[float, list[str]]]) -
         assert labels.nunique() == len(CLASSES), f"subset {min(fracs)}/{seed} is missing a class"
 
 
+# Q: What does this function do?
+# A: It returns the SHA-256 fingerprint (hex string) of a whole file.
+# Q: Why read the whole file at once here, unlike in data.download?
+# A: The split files are small (a CSV and short text files), so there is no memory problem.
+# Q: What are the inputs and what does it return?
+# A: path (file). It returns a 64-character hexadecimal string.
 def _sha256(path: Path) -> str:
     """SHA-256 hex digest of a whole file (the split files are small).
 
@@ -181,6 +278,17 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# Q: What does this function do?
+# A: It writes split.csv, one text file per (seed, fraction) subset and manifest.json, and returns the manifest dict.
+# Q: What is the manifest for and why is it written last?
+# A: It records the seed, split sizes, per-class counts and a SHA-256 of every written file, so check_integrity can
+#    later detect edits. Written last, its hashes describe the files exactly as they are on disk.
+# Q: What are the inputs and what does it return?
+# A: split_df, subsets ({subset_seed: {fraction: ids}}), out_dir (default splits/) and split_seed (recorded only). It
+#    returns the manifest dictionary.
+# Q: Why does split.csv keep only four columns and keep row order?
+# A: id, class, label and split are all that is needed, and the row order of split.csv defines the row order of the
+#    cache array.
 def save(split_df: pd.DataFrame, subsets: dict[int, dict[float, list[str]]], out_dir: Path = SPLITS_DIR,
          split_seed: int = SPLIT_SEED) -> dict:
     """Write split.csv, subsets/*.txt and manifest.json; return the manifest.
@@ -241,6 +349,12 @@ def save(split_df: pd.DataFrame, subsets: dict[int, dict[float, list[str]]], out
     return manifest
 
 
+# Q: What does this function do?
+# A: It reads split.csv back into a DataFrame (id, class, label, split).
+# Q: Why does row order matter?
+# A: The packed cache array has the same row order as split.csv, so a sample's row here is its row in the array.
+# Q: What are the inputs and what does it return?
+# A: out_dir (splits folder). It returns a pandas DataFrame.
 def load_split(out_dir: Path = SPLITS_DIR) -> pd.DataFrame:
     """Read split.csv as a DataFrame with columns id, class, label, split. Row order defines cache row order.
 
@@ -251,6 +365,13 @@ def load_split(out_dir: Path = SPLITS_DIR) -> pd.DataFrame:
     return pd.read_csv(out_dir / SPLIT_FILE)
 
 
+# Q: What does this function do?
+# A: It reads the id list of one labelled subset (a fraction and a subset seed) from splits/subsets/.
+# Q: Why are subsets read from files instead of being re-drawn?
+# A: Reading the committed files guarantees everyone uses exactly the same labelled images, even if library versions
+#    change.
+# Q: What are the inputs and what does it return?
+# A: fraction, seed, out_dir. It returns a list of id strings in stored order (the text file is split on whitespace).
 def load_subset(fraction: float, seed: int, out_dir: Path = SPLITS_DIR) -> list[str]:
     """Ids of one labelled subset (a subset of train), read from splits/subsets/ in the stored order.
 
@@ -263,6 +384,14 @@ def load_subset(fraction: float, seed: int, out_dir: Path = SPLITS_DIR) -> list[
     return (out_dir / SUBSET_DIR / subset_filename(fraction, seed)).read_text().split()
 
 
+# Q: What does this function do?
+# A: It recomputes the SHA-256 of every file listed in manifest.json and raises RuntimeError if any differs.
+# Q: Why is this needed?
+# A: If someone edits or regenerates the split by accident, train/val/test would silently change and results from
+#    different runs could no longer be compared.
+# Q: What are the inputs and what does it return?
+# A: out_dir (splits folder). It returns None; success means no exception. Scripts such as build_cache.py and
+#    inspect_dataset.py call it before using the splits.
 def check_integrity(out_dir: Path = SPLITS_DIR) -> None:
     """Raise if any committed split file differs from the hash in manifest.json.
 
@@ -280,6 +409,15 @@ def check_integrity(out_dir: Path = SPLITS_DIR) -> None:
             raise RuntimeError(f"{name} does not match manifest.json; splits were modified")
 
 
+# Q: What does this function do?
+# A: It runs the whole procedure in memory: make the split, make the nested subsets for every subset seed, then verify
+#    them.
+# Q: Why does it not write files?
+# A: Building and saving are separate steps, so the result can be checked (or inspected) before anything is written;
+#    save() does the writing.
+# Q: What are the inputs and what does it return?
+# A: index (from build_index), split_seed, subset_seeds, fractions. It returns (split_df, subsets), where subsets =
+#    {subset_seed: {fraction: ids}}.
 def build_all(index: pd.DataFrame, split_seed: int = SPLIT_SEED, subset_seeds=SUBSET_SEEDS,
               fractions=LABEL_FRACTIONS):
     """Build the split and all subsets in memory and verify them; nothing is written to disk.

@@ -9,8 +9,8 @@ Pipeline position: Phase 7. Reads the DataFrames loaded from results/summary/eva
 writes results/tables/<name>.md and <name>.tex for the report.
 
 Design decisions:
-- Scores are shown in percent with one decimal. When only one seed exists the std is NaN and is shown
-  as 0.0 (never as "nan").
+- Scores are shown in percent with one decimal. When only one seed exists the std is NaN and the cell
+  reads "x (n=1)" (never "nan", and never "± 0.0", which would suggest the seeds agreed exactly).
 - Bolding is done with Markdown "**x**" markers in the cell strings; `to_latex` converts them to
   LaTeX bold commands and escapes the Unicode symbols, so the same DataFrame feeds both outputs.
 - The LaTeX uses booktabs rules (toprule, midrule, bottomrule), so the report preamble must load
@@ -34,6 +34,66 @@ from eurosat_le.constants import CLASSES
 from eurosat_le.figures import FRACTION_LABEL, MODEL_LABEL, MODELS, MODALITY_LABEL, metric_columns
 
 
+# ======================================================================
+# CONCEPTS USED IN THIS FILE
+# ======================================================================
+# display table: a DataFrame in which every cell is already formatted text (such as '97.8 ± 0.3'), so the same table can
+#   be written as Markdown and as LaTeX. Built by supervised_table, semi_supervised_table and per_class_table.
+# mean ± std over seeds: the average over the repeated runs (seeds) and their sample standard deviation. A NaN std (one
+#   seed) is shown as '(n=1)' in _pm. The numbers come from groups.csv.
+# macro-F1 and accuracy: macro-F1 averages the per-class F1 (harmonic mean of precision and recall) with equal weight
+#   per class; accuracy is the share of correct predictions. metric_columns picks the columns.
+# percent with one decimal: scores are multiplied by 100 (the scale argument) and formatted with .1f.
+# label fraction: the share of the labelled training images used (0.01, 0.1, 1.0), shown as 1% / 10% / 100% by _frac. It
+#   is rounded before the dictionary lookup because floats such as 0.1 can differ in the last digits.
+# groups.csv, per_class.csv, compare_supervised_vs_<variant>.csv: the evaluation tables written by scripts/evaluate.py.
+#   They hold mean / std per setting, per-class F1, and teacher-vs-student summaries.
+# teacher and student (pseudo-labelling): a teacher model labels unlabelled images and a student trains on those labels.
+#   In semi_supervised_table f1_a is the teacher's F1 and f1_b the student's.
+# matched on seed / paired difference: teacher and student with the same seed are compared and the per-seed difference
+#   is summarised: delta_f1_mean, delta_f1_std, seeds_b_better out of n_seeds.
+# percentage points: the difference between two percentages (95.0 vs 93.5 = +1.5 points). Column 'Δ (points)'.
+# best model: the model with the highest test macro-F1 averaged over its RGB and 13-band rows
+#   (groupby('model').mean().idxmax()), at one label fraction. Used by make_figures.py.
+# groupby, idxmax, notna, fillna: groupby splits rows into groups; idxmax gives the row label of the largest value
+#   (first one if tied); notna tests for real numbers; fillna replaces missing cells (here with an en dash).
+# NaN and pd.isna: pandas' 'not a number' marker for a missing value.
+# Markdown table: plain text with | separators and a |---| line under the header; to_markdown writes it.
+# LaTeX table and booktabs: the report is typeset with LaTeX. booktabs gives the clean horizontal rules \toprule,
+#   \midrule, \bottomrule. 'table' is a one-column float, 'table*' spans both columns (wide=True). \caption and \label
+#   give the title and the reference key.
+# LaTeX escaping: % starts a comment, _ is special and Unicode symbols may not compile, so to_latex.esc rewrites them
+#   (\%, \_, $\pm$, $\Delta$, $\tau$, '--').
+# bold best value: _bold_best wraps the best cell of each column in **...** (Markdown bold), which esc later turns into
+#   \textbf{...} for LaTeX.
+# index and reset_index / RangeIndex: a DataFrame's row labels. A named or text index (such as the model names) is moved
+#   into a normal first column before writing.
+# itertuples: loops over the rows of a DataFrame as tuples; used to write the table body.
+# 'from __future__ import annotations': lets type hints like 'pd.DataFrame | None' work on older Python 3 versions.
+
+# ======================================================================
+# Q&A ABOUT THIS FILE (file-level viva questions)
+# ======================================================================
+# Q: What is this file for?
+#    A: It turns the evaluation tables (groups.csv and friends) into report tables: it builds tables of display strings
+#       and writes each one as Markdown (.md) and LaTeX (.tex).
+# Q: Where does it fit in the pipeline?
+#    A: Phase 7. scripts/make_figures.py and scripts/make_report_tables.py load the CSVs, call the table builders here
+#       and call write_table to save the files into results/tables for the report.
+# Q: Why is each table a DataFrame of strings rather than numbers?
+#    A: The rounding, the '± std', the '(n=1)' marker and the bold markers are decided once, so the Markdown and the
+#       LaTeX output always show identical text.
+# Q: Why do the builders sometimes return None?
+#    A: A table whose data is missing returns None so the calling script can skip it with a message and still produce
+#       the other outputs.
+
+# Q: What does this function do?
+#    A: It formats one table cell as 'mean ± std' after multiplying both numbers by scale (100 turns a 0-1 score into
+#       percent).
+# Q: Why does a NaN std give '(n=1)'?
+#    A: NaN means only one seed, so no spread was measured. '± 0.0' would wrongly suggest the seeds agreed exactly.
+# Q: What are the inputs and the output?
+#    A: mean, std, scale and digits; it returns a string.
 def _pm(mean: float, std: float, scale: float = 100.0, digits: int = 1) -> str:
     """Format "mean ± std" after multiplying both by `scale` (100 turns 0-1 scores into percent).
 
@@ -55,6 +115,11 @@ def _pm(mean: float, std: float, scale: float = 100.0, digits: int = 1) -> str:
     return f"{mean * scale:.{digits}f} ± {std * scale:.{digits}f}"
 
 
+# Q: What does this function do?
+#    A: It turns a label fraction (0.01, 0.1, 1.0) into the header text '1%', '10%', '100%' using FRACTION_LABEL.
+# Q: Why is f rounded first?
+#    A: A float such as 0.10000000001 would not be equal to the dictionary key 0.1. Rounding to 4 decimals makes the
+#       lookup reliable; unknown fractions fall back to a computed percentage.
 def _frac(f: float) -> str:
     """Label fraction as a column header such as "1%", "10%", "100%" (rounded to match the dict keys).
 
@@ -67,6 +132,15 @@ def _frac(f: float) -> str:
     return FRACTION_LABEL.get(round(f, 4), f"{f:.0%}")
 
 
+# Q: What does this function do?
+#    A: For every column it wraps the string of the best (largest) value in ** markers, so the best result per column
+#       appears in bold.
+# Q: Why is a second table 'raw' needed?
+#    A: The display cells are strings like '97.8 ± 0.3'. Comparing strings is wrong ('9.5' sorts above '10.1'), so the
+#       largest value is found in the table of real numbers and only its text is marked.
+# Q: What about ties and empty columns? What does it return?
+#    A: idxmax picks the first row on a tie; a column that is missing from raw or all NaN is left alone. It returns a
+#       modified copy, the input table is not changed.
 def _bold_best(df: pd.DataFrame, raw: pd.DataFrame) -> pd.DataFrame:
     """Bold the highest value per column (raw has the numbers behind the strings).
 
@@ -91,6 +165,17 @@ def _bold_best(df: pd.DataFrame, raw: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# Q: What does this function do?
+#    A: It builds the table of supervised test scores: one row per model and input type (RGB, 13 bands), one column per
+#       label fraction, each cell 'mean ± std' in percent, with the best mean per column in bold.
+# Q: Why are there two tables, disp and raw?
+#    A: disp holds the text that will be shown; raw holds the plain means so the best cell of each column can be found
+#       and bolded.
+# Q: What are the inputs and what is returned?
+#    A: groups (groups.csv as a DataFrame) and metric ('f1' for macro-F1, anything else for accuracy). It returns the
+#       table, or None if there are no supervised rows; a missing cell shows an en dash.
+# Q: Why only variant == 'supervised'?
+#    A: Pseudo-label students are compared with their teachers in a separate table.
 def supervised_table(groups: pd.DataFrame, metric: str = "f1") -> pd.DataFrame | None:
     """Rows: model x input. Columns: label fractions. Cell: test score in %, mean ± std over seeds.
 
@@ -131,13 +216,24 @@ def supervised_table(groups: pd.DataFrame, metric: str = "f1") -> pd.DataFrame |
     return _bold_best(disp.fillna("–"), raw)
 
 
+# Q: What does this function do?
+#    A: It lists, for each pseudo-label variant, model, input and label fraction, the teacher's F1, the student's F1,
+#       the change in points (mean ± std over seeds) and how many seeds the student beat the teacher.
+# Q: Why is the comparison 'matched on seed'?
+#    A: The student of seed s is compared with the teacher of the same seed, so the change measures the effect of
+#       pseudo-labelling and not the difference between random starts.
+# Q: What is 'groups' used for?
+#    A: Nothing: it is accepted only so the call looks like the other table builders. All numbers come from the compare
+#       tables.
+# Q: What does it return?
+#    A: A DataFrame of strings, or None if every compare table is missing or empty. A single seed is shown as '(n=1)'.
 def semi_supervised_table(groups: pd.DataFrame, compare: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
     """Teacher vs student, matched on seed: macro-F1 (%) and the change in points.
 
     `compare` maps a variant ('pl', 'plb') to its summarised compare_supervised_vs_<variant> table
     (one row per model/modality/fraction, already averaged over seeds). `groups` is accepted but not used.
-    Delta is student minus supervised teacher in macro-F1 points: mean +- std over seeds, std shown as
-    0.0 if NaN. "Seeds better" is "<seeds where the student beat its teacher>/<seeds>".
+    Delta is student minus supervised teacher in macro-F1 points: mean +- std over seeds, shown as
+    "(n=1)" with no std if the std is NaN. "Seeds better" is "<seeds where the student beat its teacher>/<seeds>".
     Returns None if every table is missing or empty; the row order is variant, then model, modality, fraction.
     """
     # One display row per (variant, model, input, fraction) combination.
@@ -168,6 +264,13 @@ def semi_supervised_table(groups: pd.DataFrame, compare: dict[str, pd.DataFrame]
     return pd.DataFrame(rows) if rows else None
 
 
+# Q: What does this function do?
+#    A: It builds a table of per-class test F1 (mean ± std over seeds, in percent) for one model at one label fraction:
+#       one row per class, one column for RGB and one for 13 bands.
+# Q: Why start from CLASSES and use set_index('class')?
+#    A: CLASSES fixes the row order for every table. A class missing in a column shows an en dash instead of crashing.
+# Q: What does it return?
+#    A: The table, or None if no supervised rows match the model and fraction (an exact float match).
 def per_class_table(per_class: pd.DataFrame, model: str, fraction: float) -> pd.DataFrame | None:
     """Per-class test F1 (%) for one model, RGB and 13-band, at one label fraction.
 
@@ -197,6 +300,13 @@ def per_class_table(per_class: pd.DataFrame, model: str, fraction: float) -> pd.
     return out
 
 
+# Q: What does this function do?
+#    A: It finds the supervised model with the highest test macro-F1 at one label fraction, averaging each model's RGB
+#       and 13-band means.
+# Q: Why is it needed?
+#    A: The confusion matrices and per-class views show only one model; this picks which one.
+# Q: What does it return?
+#    A: The model name, or None if there is no supervised row at that fraction.
 def best_model(groups: pd.DataFrame, fraction: float = 1.0) -> str | None:
     """Model with the highest mean test macro-F1 over both inputs, supervised, at one fraction.
 
@@ -213,6 +323,14 @@ def best_model(groups: pd.DataFrame, fraction: float = 1.0) -> str | None:
     return g.groupby("model")["test_f1_mean"].mean().idxmax()
 
 
+# Q: What does this function do?
+#    A: It writes a display DataFrame as a Markdown pipe table: header row, a '|---|' separator row and one line per
+#       table row.
+# Q: Why is the index sometimes reset?
+#    A: If the row labels carry information (for example the model names), they must become the first column; an unnamed
+#       index column gets an empty header.
+# Q: Are the ** markers changed?
+#    A: No. Cells are written as they are, so '**bold**' is rendered as bold by Markdown viewers.
 def to_markdown(df: pd.DataFrame) -> str:
     """Render a display DataFrame as a pipe-delimited Markdown table (string ends with a newline).
 
@@ -231,6 +349,17 @@ def to_markdown(df: pd.DataFrame) -> str:
     return "\n".join([head, sep, *body]) + "\n"
 
 
+# Q: What does this function do?
+#    A: It writes a display DataFrame as a LaTeX booktabs table inside a table (or table*) float, with caption, label,
+#       font size, header, rows and closing lines.
+# Q: Why is escaping needed?
+#    A: LaTeX treats % as a comment and _ as special, and the Unicode symbols (±, Δ, τ, en dash) may not compile.
+#       Without escaping the report would fail or lose text.
+# Q: Why booktabs, and what does wide do?
+#    A: booktabs rules look cleaner than full grid lines (the report preamble must load the package). wide=True uses
+#       table*, which spans both columns of a two-column page.
+# Q: How are columns aligned?
+#    A: The first column is left-aligned ('l'), all others centred ('c').
 def to_latex(df: pd.DataFrame, caption: str, label: str, wide: bool = False, font: str = r"\small") -> str:
     """Render a display DataFrame as a booktabs `table` float (string ends with a newline).
 
@@ -255,6 +384,14 @@ def to_latex(df: pd.DataFrame, caption: str, label: str, wide: bool = False, fon
     # An unnamed index column gets the header "Setting".
     d = d.rename(columns={"index": "Setting"})
 
+    # Q: What does this function do?
+    #    A: It makes one cell or header safe for LaTeX: symbols to math or ASCII, % and _ escaped, and each pair of **
+    #       markers turned into \textbf{...}.
+    # Q: Why is a while loop used for the bold markers?
+    #    A: Each pass finds the first '**' and the next one and replaces that pair; the loop repeats until no pair is
+    #       left.
+    # Q: Why is it nested inside to_latex?
+    #    A: It is used only there, so it is kept local.
     def esc(s) -> str:
         """Escape one cell/header: Unicode symbols to math or ASCII, % and _ escaped, **x** to bold.
 
@@ -290,6 +427,12 @@ def to_latex(df: pd.DataFrame, caption: str, label: str, wide: bool = False, fon
     return "\n".join(lines) + "\n"
 
 
+# Q: What does this function do?
+#    A: It saves a table as <name>.md and <name>.tex in out_dir, creating the folder first.
+# Q: Why return the two paths?
+#    A: The calling scripts collect them to print the list of written files.
+# Q: What is the LaTeX label?
+#    A: 'tab:<name>', so the report can refer to the table with \ref. The caption is used only in the .tex file.
 def write_table(df: pd.DataFrame, out_dir: Path, name: str, caption: str, wide: bool = False,
                 font: str = r"\small") -> list[Path]:
     """Write `df` to <out_dir>/<name>.md and <name>.tex (creating out_dir) and return both paths.

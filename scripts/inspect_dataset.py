@@ -44,9 +44,67 @@ from eurosat_le.constants import CLASSES, DATASETS, MS_BANDS, RAW_DIR, RESULTS_D
 # check_integrity verifies the split files are unchanged; load_split reads split.csv.
 from eurosat_le.data.splits import check_integrity, load_split
 
+# ==================== CONCEPTS USED IN THIS FILE ====================
+# - normalisation / standardisation: rescaling each channel to mean 0 and standard deviation 1 ((x - mean) / std) so
+#   training is stable. The mean and std per channel are computed here and saved to splits/norm_stats.json.
+# - train-only statistics (no leakage): mean/std come only from the train split, never from validation or test, so no
+#   information from held-out data enters training. Labels are not used for them.
+# - mean, population std, E[x^2] - E[x]^2: RunningStats keeps the pixel count, sum and sum of squares; mean = sum/n and
+#   std = sqrt(sum_sq/n - mean^2). float64 keeps this subtraction accurate for large uint16 values.
+# - running (streaming) statistics: adding one image at a time so the whole dataset never has to be in memory.
+# - RGB vs 13-band MS, DN, uint16, scale: RGB statistics are on pixel/255 (0..1); MS statistics are on raw digital
+#   numbers (reflectance x 10000, stored as uint16). The scales must match those used in eurosat_le.data.datasets.SCALE.
+# - Sentinel-2 bands (B01..B12, B8A): the 13 spectral bands of the satellite; the files store them in order B01..B12
+#   with B8A last (constants.MS_BANDS). The spectral plot reorders them by wavelength for display only.
+# - GeoTIFF / tifffile / PIL: tifffile reads the 13-band .tif files into arrays (64, 64, 13); PIL (Pillow) decodes the
+#   RGB .jpg files.
+# - hash fingerprint (MD5) for duplicate detection: md5 of the decoded pixel bytes of each RGB image; images with the
+#   same fingerprint are exact duplicates. It is only a duplicate fingerprint, not a security check.
+# - train/test leakage via duplicates: if identical images fall into different splits (for example train and test), the
+#   test score would be too optimistic; 'cross' counts such duplicate groups.
+# - class counts (pivot_table): counts of images per class and per split, laid out as a table (rows = classes, columns =
+#   train/val/test).
+# - z-score and heatmap: z = (class mean - overall mean) / overall std per band; shown as a colour grid with a diverging
+#   colour map (blue below average, red above), symmetric around zero.
+# - spectral signature: how a class's average reflectance changes across wavelength bands; different land-use classes
+#   have different signatures, which is why 13 bands can help.
+# - matplotlib (plt, fig, ax), savefig, close: plotting library; each plot function draws a figure, saves it as PNG and
+#   closes it to free memory. It is imported inside the functions so the rest of the script works without it.
+# - numpy default_rng(seed) / choice: a seeded random generator; with a fixed seed the same 5 images per class are drawn
+#   every time, so the figure is repeatable.
+# - tqdm: shows a progress bar while looping over 27,000 images.
+# - check_integrity: recomputes the SHA-256 of the split files and compares with manifest.json, so 'train' below really
+#   means the committed, unmodified split.
+# - json: summary.json and norm_stats.json are written as JSON text files.
+# - if __name__ == '__main__': runs main() only when executed as a script, not when imported.
+# ====================================================================
+#
+# ---- Q&A: THIS FILE ----
+# Q: What is this file for?
+# A: It inspects the dataset (counts, shapes, value ranges, duplicates, plots) and, most importantly, computes the
+#    per-channel mean/std on the train split and saves them to splits/norm_stats.json, which every dataset uses to
+#    standardise pixels.
+# Q: Where does it fit in the pipeline?
+# A: After download_data.py and make_splits.py, before build_cache.py and training. It runs once.
+# Q: What does it read and write?
+# A: Reads splits/split.csv, data/raw/EuroSAT_RGB/*.jpg and (if present) data/raw/EuroSAT_MS/*.tif. Writes
+#    splits/norm_stats.json and, in results/dataset_inspection/, summary.json, class_counts.csv and the PNG figures
+#    (samples_rgb, class_counts, spectral_signatures).
+# Q: Why are the statistics computed only from the training images?
+# A: Using validation or test images would let information from held-out data influence training (leakage). Train images
+#    that count as unlabelled in the 1%/10% settings are included, but no labels are used, so that is not label leakage.
+
 OUT = RESULTS_DIR / "dataset_inspection"  # folder for all outputs of this script
 
 
+# ---- Q&A: RunningStats ----
+# Q: What is RunningStats?
+# A: A small accumulator that computes the per-channel mean and standard deviation over all pixels of many images,
+#    keeping only three running totals: the number of pixels, the sum, and the sum of squares.
+# Q: Why not load all images and call np.mean / np.std?
+# A: The 13-band data is about 2.9 GB; running sums need only a few numbers in memory and give the same result.
+# Q: Which standard deviation does it give?
+# A: The population std (divides by the number of pixels), computed as sqrt(E[x^2] - E[x]^2) in float64 for accuracy.
 class RunningStats:
     """Per-channel mean/std over all pixels, accumulated in float64.
 
@@ -55,11 +113,25 @@ class RunningStats:
     sqrt(E[x^2] - E[x]^2); float64 keeps that subtraction accurate for the uint16 MS values.
     """
 
+    # ---- Q&A: __init__ ----
+    # Q: What does __init__ do?
+    # A: It starts an empty accumulator: n = 0 pixels, and per-channel sum s and sum of squares ss as arrays of zeros.
+    # Q: What is the input?
+    # A: c, the number of channels: 3 for RGB, 13 for multispectral.
     def __init__(self, c):
         """Start an empty accumulator for `c` channels (3 for RGB, 13 for multispectral)."""
         # n = number of pixels seen; s = per-channel sum of values; ss = per-channel sum of squared values.
         self.n, self.s, self.ss = 0, np.zeros(c), np.zeros(c)
 
+    # ---- Q&A: add ----
+    # Q: What does add() do?
+    # A: It adds one image to the totals: reshapes it to a list of pixels with C values each, converts to float64, and
+    #    increases n, s and ss.
+    # Q: Why convert to float64?
+    # A: To avoid overflow and rounding errors when summing squares of large numbers, such as uint16 values up to about
+    #    10,000 for the MS bands.
+    # Q: What is the input?
+    # A: An array of shape (H, W, C) of any numeric type. It returns nothing; it updates the object.
     def add(self, x):  # x: (H, W, C)
         """Add one image (H, W, C), any numeric dtype; every pixel counts equally."""
         # Flatten to a list of pixels with C values each, in float64 so the sums do not overflow or lose precision.
@@ -69,6 +141,11 @@ class RunningStats:
         self.s += x.sum(0)
         self.ss += (x**2).sum(0)
 
+    # ---- Q&A: result ----
+    # Q: What does result() return?
+    # A: A pair (mean, std), each an array with one value per channel.
+    # Q: How is the std obtained from the totals?
+    # A: From the identity variance = E[x^2] - (E[x])^2, with E[x] = sum/n and E[x^2] = sum_sq/n, then a square root.
     def result(self):
         """Return (mean, std), each an array with one value per channel."""
         # mean = sum / count; std from the identity var = E[x^2] - (E[x])^2.
@@ -76,6 +153,20 @@ class RunningStats:
         return mean, np.sqrt(self.ss / self.n - mean**2)
 
 
+# ---- Q&A: main ----
+# Q: What does main() do?
+# A: It checks the split files are unchanged, loads the split table, counts images per class and split, reads every RGB
+#    image (collecting shape info, duplicate fingerprints and train-only mean/std), does the same for the 13-band images
+#    if present (also band min/max and class means), writes norm_stats.json and summary.json, and draws the three
+#    figures.
+# Q: Why does it call check_integrity first?
+# A: So that 'train' refers to the committed, unmodified split; otherwise the statistics could be computed on the wrong
+#    images.
+# Q: Why are RGB values divided by 255 but MS values left as raw DN?
+# A: That matches the scale factors used when datasets are loaded (SCALE in eurosat_le.data.datasets); the statistics
+#    and the loading code must use the same scale or the standardisation would be wrong.
+# Q: Why is the MS part optional?
+# A: The 13-band data is large; if its folder is missing the script prints a message and skips those statistics.
 def main() -> None:
     """Inspect the data on disk and write norm_stats.json plus the inspection outputs (see module docstring)."""
     # Make sure the output folder exists and switch on the project's plot style.
@@ -180,6 +271,13 @@ def main() -> None:
     print(f"Wrote {OUT} and {SPLITS_DIR / 'norm_stats.json'}")
 
 
+# ---- Q&A: plot_samples ----
+# Q: What does plot_samples() do?
+# A: It saves samples_rgb.png: a grid with one row per class and per_class (5) randomly chosen RGB patches per row.
+# Q: Why a fixed seed?
+# A: So the same patches are drawn every time and the figure is repeatable.
+# Q: What are the inputs?
+# A: df (the split table), rgb_dir (folder of JPEGs), per_class and seed. It returns None.
 def plot_samples(df, rgb_dir, per_class=5, seed=0):
     """Save a grid of `per_class` randomly chosen RGB patches per class (fixed seed, so the figure is repeatable)."""
     # matplotlib is imported here so the rest of the script works without it until a plot is drawn.
@@ -208,6 +306,15 @@ def plot_samples(df, rgb_dir, per_class=5, seed=0):
     plt.close(fig)
 
 
+# ---- Q&A: plot_counts ----
+# Q: What does plot_counts() do?
+# A: It saves class_counts.png: a horizontal bar chart of the total number of images per class, with the exact count
+#    written next to each bar.
+# Q: Why is it useful?
+# A: It shows at a glance how many images each class has, i.e. whether the classes are balanced or some are rarer than
+#    others.
+# Q: What is the input?
+# A: The counts table made in main(); it uses its 'total' column. It returns None.
 def plot_counts(counts):
     """Save a horizontal bar chart of the total number of images per class (from the class_counts table)."""
     # matplotlib is imported here so the rest of the script works without it until a plot is drawn.
@@ -232,6 +339,18 @@ def plot_counts(counts):
     plt.close(fig)
 
 
+# ---- Q&A: plot_spectral ----
+# Q: What does plot_spectral() do?
+# A: It saves spectral_signatures.png: a heatmap of each class's mean value in each of the 13 bands, expressed as a
+#    z-score against the train-set mean and std of that band.
+# Q: Why reorder the bands by wavelength?
+# A: The files store B8A last, but physically it lies between B08 and B09; sorting makes the picture follow the
+#    spectrum. The reordering is for display only; the data and norm_stats keep file order.
+# Q: Why a symmetric colour scale?
+# A: vmin = -lim and vmax = +lim make zero (the average) the neutral colour, so red clearly means 'above average' and
+#    blue 'below average'.
+# Q: What are the inputs?
+# A: class_means (n_classes x 13, file order), band_mean and band_std (train statistics). It returns None.
 def plot_spectral(class_means, band_mean, band_std):
     """Heatmap of per-class mean reflectance, z-scored per band against the train set.
 

@@ -40,6 +40,55 @@ from tqdm import tqdm
 from eurosat_le.constants import DATA_DIR, DATASETS, RAW_DIR, SPLITS_DIR
 from eurosat_le.data.splits import SPLIT_FILE, load_split
 
+# ====================================================================================================
+# CONCEPTS USED IN THIS FILE
+# - Cache (.npy): one big file that holds every image of one input type in a single NumPy array, so training reads one
+#   file instead of opening 27,000 small ones each epoch. Written to data/cache/<modality>.npy.
+# - .npy format: NumPy's own binary file format for one array (shape and dtype are stored in its header); it can be
+#   re-opened with np.load.
+# - Memory map (memmap, mmap_mode): the array stays on disk and the operating system loads only the parts that are
+#   read, so RAM use stays low. open_memmap creates the file while building; np.load(mmap_mode='r') reads it lazily.
+# - uint8 / uint16: unsigned integers of 8 bits (0..255, JPEG pixels) and 16 bits (0..65535, raw satellite values).
+#   The cache keeps the original type: uint8 for RGB, uint16 for MS.
+# - DN (digital number): the raw integer pixel value stored by the satellite product; the MS cache holds it unscaled.
+#   Scaling and normalisation happen later, in data.datasets.
+# - Shape (N, C, H, W) / channel-first: N images, C channels (3 for RGB, 13 for MS), height and width 64. PyTorch
+#   wants channels first, but image readers give (H, W, C), hence the transpose in read_raw.
+# - Contiguous array: an array whose values sit next to each other in memory; a transposed view is not, so
+#   np.ascontiguousarray makes a real copy before it is written to the memmap.
+# - EuroSAT RGB (JPEG) / MS (GeoTIFF): RGB images are read with Pillow and forced to 3 channels; 13-band GeoTIFFs are
+#   read with tifffile. The MS channels keep the file order (B8A is last).
+# - Sidecar JSON: a small <modality>.json file next to the array holding modality, shape, dtype and the SHA-256 of
+#   split.csv. It is written last, so a cache without it is treated as unusable.
+# - Stale cache: a cache built for an older split.csv; its row order would no longer match the labels. check_cache
+#   compares the saved split.csv hash with the current one and refuses a mismatch.
+# - SHA-256 hash: a fingerprint of a file's bytes; any change to split.csv (even re-ordering rows) changes it.
+# - Atomic write (temp file then rename): the array is built under a temporary name and renamed when complete, so an
+#   interrupted build never leaves a half-filled file that looks finished.
+# - tqdm: a library that shows a progress bar while the loop runs.
+# ====================================================================================================
+#
+# FILE-LEVEL Q&A
+# Q: What is this file for?
+# A: It packs all 27,000 EuroSAT images of one input type into one .npy array (rows in split.csv order) and provides
+#    safe access to it.
+# Q: Where does it fit in the pipeline?
+# A: After download_data.py and make_splits.py, before training (entry point scripts/build_cache.py). data.datasets
+#    reads the array it produces.
+# Q: What does it read and write?
+# A: It reads the raw JPEG/GeoTIFF files and splits/split.csv; it writes data/cache/<modality>.npy and
+#    data/cache/<modality>.json.
+# Q: Why a cache instead of reading the image files directly?
+# A: Opening 27,000 small files every epoch is slow, especially on Colab's 2-core machines; one array is far faster.
+#    It also stores raw pixels without scaling, so it is a lossless copy.
+# Q: Why keep images at 64x64 in the cache?
+# A: It keeps the files small (RGB about 0.33 GB, MS about 2.9 GB); upsampling to 224 pixels for the ImageNet models
+#    happens later on the GPU.
+
+# Q: What are CACHE_DIR, CHANNELS and DTYPES?
+# A: CACHE_DIR is data/cache (where the files go). CHANNELS gives the number of channels per image (3 for rgb, 13 for
+#    ms). DTYPES gives the stored pixel type: uint8 for JPEG pixels, uint16 for the raw GeoTIFF values, so no
+#    information is lost.
 # Folder where the packed .npy files and their .json sidecars are stored.
 CACHE_DIR = DATA_DIR / "cache"
 # Number of channels (bands) per image for each input type.
@@ -48,6 +97,16 @@ CHANNELS = {"rgb": 3, "ms": 13}
 DTYPES = {"rgb": np.uint8, "ms": np.uint16}
 
 
+# Q: What does this function do?
+# A: It reads one image from the extracted dataset and returns it as a channel-first (C, H, W) NumPy array.
+# Q: Why is the array transposed?
+# A: Both readers return (H, W, C), but PyTorch models expect (C, H, W). ascontiguousarray makes a proper copy so it
+#    can be written into the memmap.
+# Q: What are the inputs and what does it return?
+# A: modality ('rgb' or 'ms'), sample_id (e.g. 'AnnualCrop/AnnualCrop_1'), raw_dir. It returns uint8 (RGB) or uint16
+#    (MS) data with no scaling or band reordering; MS keeps file order with B8A last.
+# Q: Why convert('RGB') for JPEGs?
+# A: It guarantees exactly 3 colour channels whatever mode the file is in.
 def read_raw(modality: str, sample_id: str, raw_dir: Path = RAW_DIR) -> np.ndarray:
     """Read one image from the extracted dataset as a (C, H, W) array.
 
@@ -74,6 +133,13 @@ def read_raw(modality: str, sample_id: str, raw_dir: Path = RAW_DIR) -> np.ndarr
     return np.ascontiguousarray(x.transpose(2, 0, 1))
 
 
+# Q: What does this function do?
+# A: It returns the SHA-256 fingerprint of splits/split.csv.
+# Q: Why is it needed?
+# A: The cache rows are in split.csv order. Saving the fingerprint with the cache lets us detect later that split.csv
+#    changed and the rows no longer match.
+# Q: What are the inputs and what does it return?
+# A: splits_dir (folder with split.csv). It returns a 64-character hex string.
 def _split_hash(splits_dir: Path) -> str:
     """SHA-256 of split.csv, used to tie a cache to the exact row order it was built from.
 
@@ -87,6 +153,20 @@ def _split_hash(splits_dir: Path) -> str:
     return hashlib.sha256((splits_dir / SPLIT_FILE).read_bytes()).hexdigest()
 
 
+# Q: What does this function do?
+# A: It reads every image in split.csv order, writes them into one memory-mapped .npy array, and then writes a sidecar
+#    JSON with metadata and the split.csv hash.
+# Q: Why is the array written under a temporary name, and the JSON last?
+# A: If the build is interrupted, no file with the final name exists and no sidecar exists, so a half-finished cache
+#    is never used. check_cache treats a missing sidecar as 'not built'.
+# Q: Why check each image's shape and dtype?
+# A: A wrongly sized or wrongly typed image would silently corrupt the cache or be converted by NumPy; stopping at
+#    once tells us which id is wrong.
+# Q: What are the inputs and what does it return?
+# A: modality, raw_dir, splits_dir, cache_dir, overwrite. It returns the Path of the .npy file. If the cache exists
+#    and overwrite is False it rebuilds nothing but still runs the stale-split check.
+# Q: Why use open_memmap rather than building a list in RAM?
+# A: The MS array is about 2.9 GB; writing straight to disk avoids holding it all in memory.
 def build_cache(modality: str, raw_dir: Path = RAW_DIR, splits_dir: Path = SPLITS_DIR,
                 cache_dir: Path = CACHE_DIR, overwrite: bool = False) -> Path:
     """Build <cache_dir>/<modality>.npy (and its .json sidecar) from the raw files.
@@ -147,6 +227,15 @@ def build_cache(modality: str, raw_dir: Path = RAW_DIR, splits_dir: Path = SPLIT
     return out
 
 
+# Q: What does this function do?
+# A: It compares the split.csv hash saved in the cache's JSON with the current split.csv and raises RuntimeError if
+#    they differ.
+# Q: What would go wrong without it?
+# A: Labels and ids come from split.csv but pixels come from the cache. If split.csv changed, row i would hold the
+#    wrong image for its label and training would be silently wrong.
+# Q: What are the inputs and what does it return?
+# A: modality, splits_dir, cache_dir. It returns None; it raises FileNotFoundError if the JSON is missing (cache not
+#    built).
 def check_cache(modality: str, splits_dir: Path = SPLITS_DIR, cache_dir: Path = CACHE_DIR) -> None:
     """Raise RuntimeError if the cache was built for a different split.csv than the current one.
 
@@ -165,6 +254,15 @@ def check_cache(modality: str, splits_dir: Path = SPLITS_DIR, cache_dir: Path = 
         raise RuntimeError(f"{cache_dir / modality}.npy was built for a different split.csv; rebuild it")
 
 
+# Q: What does this function do?
+# A: It checks the cache is current and returns it as a NumPy array of shape (27000, C, 64, 64), memory-mapped by
+#    default.
+# Q: Why memory-map by default, and when use in_memory=True?
+# A: Memory mapping uses little RAM. in_memory=True loads everything (about 0.33 GB for RGB, 2.9 GB for MS) for faster
+#    access if there is enough memory.
+# Q: What are the inputs and what does it return?
+# A: modality, in_memory, splits_dir, cache_dir. It returns the array (read-only memmap, or a normal array if
+#    in_memory).
 def load_cache(modality: str, in_memory: bool = False, splits_dir: Path = SPLITS_DIR,
                cache_dir: Path = CACHE_DIR) -> np.ndarray:
     """Return the cached array, memory-mapped (default) or fully loaded into RAM.

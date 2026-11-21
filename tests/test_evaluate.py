@@ -26,6 +26,70 @@ from eurosat_le.eval.evaluate import (compare, expected_calibration_error, load_
 from eurosat_le.eval.metrics import classification_metrics
 
 
+# ====================================================================================================
+# CONCEPTS USED IN THIS FILE (study notes)
+# ====================================================================================================
+# - unit test: a check of ONE function on small made-up input: test_macro_f1_fast_matches_sklearn, test_ece,
+#     test_paired_bootstrap, test_load_preds_cache and so on.
+# - end-to-end (integration) test: runs a whole script like a user would. test_evaluate_script_end_to_end starts
+#     scripts/evaluate.py with subprocess and checks its exit code and the files it writes.
+# - regression test: pins a known-good result so a later change that alters it is noticed.
+#     test_paired_bootstrap_fixed_seed_values pins exact numbers for a fixed seed.
+# - assert: a statement that must be true; if false, pytest marks the test as FAILED.
+# - fixture (@pytest.fixture): a function that builds shared test input; tests name it as an argument. `runs_dir`
+#     builds the 8 fake run folders.
+# - tmp_path: built-in pytest fixture: a fresh empty temporary folder (pathlib.Path) per test, so tests never touch
+#     results/runs.
+# - synthetic / fake data and fake run folder: no model is trained. make_run writes the same files a real run leaves
+#     (preds_val.npz, preds_test.npz, config.yaml, metrics.json) but with random fake predictions.
+# - logits: the raw output scores of a model, one per class (10 here). The predicted class is the argmax.
+# - softmax and argmax: softmax turns logits into probabilities that sum to 1; argmax picks the index of the largest
+#     value, i.e. the predicted class. Confidence = the largest probability.
+# - accuracy: share of images predicted correctly.
+# - macro-F1: F1 per class (harmonic mean of precision and recall), then the plain average over the 10 classes, so
+#     rare classes count as much as common ones. macro_f1_fast is a quick numpy version used inside the bootstrap.
+# - ECE (expected calibration error): calibration = does 80% confidence mean 80% correct? ECE bins predictions by
+#     confidence (15 equal-width bins) and averages |accuracy - confidence| weighted by bin size. 0 = perfect.
+# - bootstrap (paired): re-draw the test images many times WITH replacement and recompute the score each time; the
+#     spread shows how much a difference could be luck. 'Paired' = the SAME resampled images are used for both runs.
+#     n_boot = number of resamples; the 95% interval = 2.5th and 97.5th percentiles (lo, hi).
+# - paired comparison by seed: two runs are compared only if everything except the studied factor (and the seed)
+#     matches, so they share labelled images, initialisation and test images. delta_f1 = F1(b) - F1(a).
+# - align by id: predictions are sorted by image id when loaded, so row i is the same image in every run, even if
+#     the data loader ordered the images differently.
+# - determinism / seed: a fixed seed (np.random.default_rng(seed), zlib.crc32 of the run name) makes 'random'
+#     numbers repeat, so fake runs and bootstrap results are reproducible.
+# - float16 vs float32: saved logits are stored in 16-bit floats to save space; they are converted back to float32
+#     on loading. Rounding can flip rare ties, hence the tolerance 1e-3 in check_against_logged.
+# - cache (load_preds): predictions are read once and kept in memory. The cache key contains path, file modification
+#     time (mtime) and size, so a rewritten file is read again. Cached arrays are read-only.
+# - subprocess: starts another program (python scripts/evaluate.py ...) and captures its output and exit code
+#     (returncode 0 = success).
+# - confusion matrix (row-normalised): table of true class (rows) versus predicted class (columns); dividing each
+#     row by its total makes every row sum to 1.
+# - variant (supervised / pl): 'pl' = pseudo-label student; 'supervised' = plain run with no name suffix.
+# - pytest.approx: float comparison with a tolerance.
+
+# ====================================================================================================
+# Q&A ABOUT THIS FILE (viva practice)
+# ====================================================================================================
+# Q: Which part of the project does this file protect?
+# A: The evaluation code: eurosat_le/eval/evaluate.py (macro-F1, ECE, bootstrap, pairing of runs, loading and
+#    caching of predictions) and the script scripts/evaluate.py that writes the result tables.
+# Q: How do you run it?
+# A: pytest tests/test_evaluate.py from the repo root. The helper make_run is also imported by
+#    tests/test_evaluate_regression.py.
+# Q: Why is no training and no image data needed?
+# A: Evaluation works only on saved predictions. make_run writes random fake predictions for the REAL val/test image
+#    ids, which it reads from the committed splits/split.csv; no pixels and no model are involved.
+
+# Q: What does _fake_logits do?
+# A: Builds fake model outputs (n x 10 logits). For each image the 'predicted' class is the true label with
+#    probability acc, otherwise a random class; random normal noise is added and the chosen class gets +4 so it
+#    becomes (almost always) the argmax.
+# Q: Why is it enough?
+# A: The evaluation code does not care how the logits were produced, only that accuracy is controllable (about acc)
+#    so that better/worse runs can be compared.
 def _fake_logits(labels, acc, rng):
     """Helper: make fake model outputs (logits) that are correct for about a fraction `acc` of the images."""
     # For each image, use the true label with probability `acc`, otherwise a random class (may be right by luck).
@@ -37,6 +101,16 @@ def _fake_logits(labels, acc, rng):
     return logits
 
 
+# Q: What does this helper do?
+# A: Writes one fake finished run folder, e.g. resnet50_rgb_1pct_seed0 (or ..._pl): preds_val.npz and preds_test.npz
+#    (float16 logits, labels, ids), config.yaml and metrics.json, with accuracy about acc.
+# Q: Why are ids shuffled, and why is the random generator seeded from the run name?
+# A: Each run stores its ids in its own order, so the evaluation code must re-align them by id. Seeding from the run
+#    name (zlib.crc32) means the same run always gets the same fake predictions, so tests and the regression files
+#    are stable.
+# Q: Why are the logged metrics computed from float16-rounded logits?
+# A: A real training run saves float16 logits and logs metrics from them; copying that makes check_against_logged
+#    comparable. Real val/test labels and ids come from load_split()/split_ids().
 def make_run(runs_dir, model, modality, fraction, seed, acc, suffix="", rng=None):
     """Helper: write a fake finished run folder (predictions, config, metrics) with roughly accuracy `acc`.
 
@@ -72,6 +146,13 @@ def make_run(runs_dir, model, modality, fraction, seed, acc, suffix="", rng=None
     return d
 
 
+# Q: What does the runs_dir fixture build?
+# A: A temporary 'runs' folder with 8 fake runs: 2 seeds x 4 settings: ResNet-50 RGB (80%), ResNet-50 13-band (88%),
+#    ResNet-50 RGB pseudo-label student 'pl' (84%) and scratch CNN RGB (55%), all at 1% labels.
+# Q: Why these settings?
+# A: 13-band is clearly better than RGB, pl slightly better than its supervised teacher, scratch worse than ResNet:
+#    every comparison has a known winner and two seeds give two pairs. The scratch CNN has no 13-band run, so it
+#    must not appear in the RGB-vs-13-band comparison.
 @pytest.fixture
 def runs_dir(tmp_path):
     """Fixture: a temporary 'runs' folder with 8 fake runs (2 seeds x 4 settings) shared by several tests."""
@@ -88,6 +169,12 @@ def runs_dir(tmp_path):
     return rd
 
 
+# Q: What does this test check?
+# A: macro_f1_fast (bincount confusion matrix) equals scikit-learn's f1_score(average='macro') on 500 random labels
+#    and predictions over 10 classes.
+# Q: Why does it matter?
+# A: The bootstrap calls macro_f1_fast thousands of times, so it is a faster re-implementation. This test proves the
+#    speed-up did not change the number.
 def test_macro_f1_fast_matches_sklearn():
     """Our fast macro-F1 (used inside the bootstrap) must give the same number as scikit-learn."""
     # 500 random true and predicted labels over 10 classes.
@@ -97,6 +184,15 @@ def test_macro_f1_fast_matches_sklearn():
     assert macro_f1_fast(y, p) == pytest.approx(f1_score(y, p, average="macro", labels=range(10)))
 
 
+# Q: What does this test check?
+# A: ECE is 0 for a perfectly confident and always correct model, and about 0.41 for a model that is 91% confident
+#    but only 50% correct.
+# Q: How are the two cases built?
+# A: Perfect: true labels all 0 and probabilities one-hot on class 0 (confidence 1.0, accuracy 1.0 -> gap 0).
+#    Overconfident: probability 0.91 on class 0 for every image, but half the true labels are 1, so accuracy 0.50
+#    and the gap is 0.91 - 0.50 = 0.41.
+# Q: Which function does it exercise?
+# A: expected_calibration_error(probs, labels, n_bins=15) in eval/evaluate.py.
 def test_ece():
     """Expected calibration error: 0 for a perfectly confident and correct model, large for an overconfident one."""
     # Every true label is class 0; the "perfect" model puts probability 1 on class 0 every time.
@@ -112,6 +208,15 @@ def test_ece():
     assert expected_calibration_error(over, wrong) == pytest.approx(0.41, abs=0.01)
 
 
+# Q: What does this test check?
+# A: Comparing a run with itself gives exactly (0.0, 0.0, 0.0); a run that fixes half of the mistakes gives a
+#    positive difference whose whole 95% interval is above 0 and which lies inside its interval.
+# Q: Why does it matter?
+# A: It shows the bootstrap reports 'no difference' when there is none and detects a real improvement; the interval
+#    is what lets the report say a gain is not just luck.
+# Q: How is the fake input built?
+# A: 2,000 random true labels; prediction p is right about 70% of the time; 'better' takes the true label for about
+#    half of the images and otherwise keeps p's answer. n_boot=200 keeps the test fast.
 def test_paired_bootstrap():
     """The paired bootstrap must report no difference for identical runs and a positive one for a better run."""
     # Fake truth y, and predictions p that are right ~70% of the time.
@@ -127,6 +232,14 @@ def test_paired_bootstrap():
     assert d > 0 and lo > 0 and lo <= d <= hi
 
 
+# Q: What does this test check?
+# A: With seed 3 and 300 resamples the delta and both interval ends equal three stored numbers (to 1e-9).
+# Q: Why does it matter?
+# A: paired_bootstrap was rewritten to process resamples in batches for speed. These values came from the original
+#    per-resample loop, so passing proves the faster code draws the same resamples and gives the same results.
+# Q: What is the weakness of such a test?
+# A: If the algorithm is changed on purpose, the numbers must be updated deliberately; the test only guards
+#    equivalence, not correctness of the statistics.
 def test_paired_bootstrap_fixed_seed_values():
     """Pins the exact output for a fixed seed, so a faster implementation must give the same numbers."""
     # Small fake test set: run a is about 70% correct, run b fixes about half of a's mistakes.
@@ -143,6 +256,16 @@ def test_paired_bootstrap_fixed_seed_values():
     assert hi == pytest.approx(0.16831328287475714, abs=1e-9)
 
 
+# Q: What does this test check?
+# A: compare(runs, 'modality', 'rgb', 'ms') returns 2 pairs (seeds 0 and 1, model resnet50 only) with a positive
+#    delta_f1; summarise_comparison reports n_seeds 2 and seeds_b_better 2; compare(runs, 'variant', 'supervised',
+#    'pl') gives 2 RGB pairs.
+# Q: Why does it matter?
+# A: Pairing only runs that match in model, fraction, variant and seed makes the comparison fair. The scratch CNN
+#    (no 13-band run) and the 'pl' runs must not be paired with the wrong partner.
+# Q: Which functions does it exercise?
+# A: load_runs (reads config.yaml of every run), compare (aligns images by sorted id, bootstrap per pair) and
+#    summarise_comparison (mean/std over seeds, count of seeds where b is better).
 def test_compare_aligns_ids_and_pairs_by_seed(runs_dir):
     """compare() must match runs by seed (and all other settings), align images by id, and fill the table."""
     # Read all fake runs, then compare RGB (a) with 13 bands (b) for every matching seed.
@@ -160,6 +283,12 @@ def test_compare_aligns_ids_and_pairs_by_seed(runs_dir):
     assert len(pl) == 2 and (pl["modality"] == "rgb").all()
 
 
+# Q: What does this test check?
+# A: For every fake run, metrics recomputed from the saved predictions (softmax, argmax) agree with the metrics.json
+#    written by the 'training': check_against_logged returns an empty list.
+# Q: Why does it matter?
+# A: evaluate.py recomputes every number from predictions instead of trusting the log. This cross-check catches
+#    mismatched files or a bug in the recomputation (tolerance 1e-3 on accuracy and macro-F1).
 def test_recomputed_metrics_match_logged(runs_dir):
     """Metrics recomputed from saved predictions must agree with the metrics.json written by the run."""
     # check_against_logged is imported here because only this test uses it.
@@ -170,6 +299,16 @@ def test_recomputed_metrics_match_logged(runs_dir):
         assert check_against_logged(d, run_metrics(d)) == []
 
 
+# Q: What does this test check?
+# A: (1) Two calls to load_preds return the very same array objects (cache hit). (2) The arrays are read-only:
+#    writing raises ValueError. (3) After the file is rewritten with all-zero logits (and mtime moved +1 s) the next
+#    call returns the new data.
+# Q: Why does it matter?
+# A: A shared cache without invalidation would silently serve stale predictions after a re-run; a writable cache
+#    could be corrupted by one caller and change everyone's results.
+# Q: Why does it change the modification time by hand?
+# A: A fast rewrite can leave the same timestamp, and the cache key uses (path, mtime, size); os.utime guarantees
+#    that the key changes. cache_clear() at the start and end keeps other tests unaffected.
 def test_load_preds_cache(tmp_path):
     """Predictions are read once, shared read-only, and re-read when the file is rewritten."""
     # os: to change the file's modification time; load_preds: the cached reader under test.
@@ -199,6 +338,16 @@ def test_load_preds_cache(tmp_path):
     load_preds.cache_clear()  # leave no cached arrays behind for other tests
 
 
+# Q: What does this test check?
+# A: scripts/evaluate.py, run as a separate process on the 8 fake runs, exits with code 0, prints no WARNING, and
+#    writes groups.csv (4 settings, 2 seeds each), per_class.csv (4 x 10 rows), three comparison CSVs and a
+#    confusion CSV whose rows sum to 1.
+# Q: Why does it matter?
+# A: Unit tests can pass while the script's wiring (arguments, file names, grouping) is broken; this catches that.
+#    'No WARNING' means the recomputed metrics matched the logged ones.
+# Q: Why subprocess?
+# A: It runs the script exactly as a user would from the command line (--runs-dir, --out, --n-boot 100), with
+#    stdout/stderr captured so a failure message is shown by the assert.
 def test_evaluate_script_end_to_end(runs_dir, tmp_path):
     """Run scripts/evaluate.py on the fake runs and check that it succeeds and writes all expected result files."""
     out = tmp_path / "eval"

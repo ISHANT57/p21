@@ -41,6 +41,66 @@ import pandas as pd
 from eurosat_le import viz
 from eurosat_le.constants import CLASSES
 
+# ======================================================================
+# CONCEPTS USED IN THIS FILE
+# ======================================================================
+# matplotlib figure, axes, subplots: a figure is the whole image; axes are one plot panel inside it; plt.subplots(1, n,
+#   sharey=True) makes n panels side by side that share the y scale so they compare directly.
+# groups / pairs / per_class DataFrames: groups.csv (mean and std per setting), compare_*_pairs.csv (one row per matched
+#   seed) and per_class.csv (per-class F1). All are written earlier by scripts/evaluate.py.
+# label fraction and label efficiency: the share of labelled training images used (1%, 10%, 100%). A label-efficiency
+#   curve shows how the score changes as more labels are available.
+# log-scaled x axis: each tick is a factor of 10 from the last, so 1%, 10% and 100% are evenly spaced (_frac_ticks).
+# macro-F1 and accuracy: macro-F1 averages the per-class F1 (harmonic mean of precision and recall) with equal weight;
+#   accuracy is the share of correct predictions. metric_columns chooses which columns are plotted.
+# mean ± std over seeds and error bars: the mean over repeated runs (seeds) is the point, the sample std is the vertical
+#   bar (ax.errorbar). A NaN std (one seed) is drawn as 0 with fillna(0).
+# paired difference per seed: for the same seed, the score of one setup minus the other (delta_f1). rgb_vs_ms_gain uses
+#   13-band minus RGB; pseudo_label_gain uses student minus teacher.
+# bar plus dots: a pale bar is the mean difference over seeds and one dot per seed shows the spread. Above the zero line
+#   the first-named setup helps, below it hurts.
+# pseudo-labelling (pl, plb), teacher and student: a teacher labels unlabelled images and a student trains on them;
+#   'plb' is the class-balanced version, drawn with hatching.
+# confusion matrix: a table of true class (rows) against predicted class (columns). Row normalisation divides each row
+#   by its sum so every row adds to 1 (100 percent) and classes of different size compare fairly. The diagonal is the
+#   per-class recall.
+# per-class F1 heatmap: a colour grid with one row per land-cover class and one column per model / input (imshow); built
+#   with pivot_table(index='class', columns='col', values='f1_mean') and reindex(CLASSES).
+# colour scale limits (vmin, vmax) and colormap: vmin / vmax fix which values get the lightest and darkest colour;
+#   viz.SEQUENTIAL is the light-to-dark blue map. The confusion matrices use 0..1 in every panel.
+# colour rule: a model keeps one colour (MODEL_COLOR) and one marker shape (MODEL_MARKER) in every figure, lines are
+#   also labelled directly, and text uses grey tokens, so colour is not the only cue. The green has below 3:1 contrast
+#   on the background, which is why markers and labels are added.
+# direct labels and _spread: the model name is written at the end of its line instead of only in a legend; _spread
+#   nudges label heights apart so they do not overlap.
+# NaN: pandas' 'not a number' marker for a missing value (a one-seed std, a class with no data).
+# np.argsort, np.full, np.nanmin: numpy helpers to get the sort order of values, make an array of one repeated value
+#   (the x position of the dots) and take a minimum that ignores NaN.
+# 'return path or None' pattern: each figure function returns the written path, or None when its data is empty, so the
+#   script can run on partial results.
+# lazy import of pyplot: 'import matplotlib.pyplot as plt' is placed inside the functions. viz (imported at the top)
+#   already selected the non-interactive 'Agg' backend, so figures save without a display.
+# dpi and closing figures: the style saves at 200 dpi; _save closes each figure with plt.close to free memory.
+# 'from __future__ import annotations': lets type hints like 'Path | None' work on older Python 3 versions.
+
+# ======================================================================
+# Q&A ABOUT THIS FILE (file-level viva questions)
+# ======================================================================
+# Q: What is this file for?
+#    A: It draws the report figures (label-efficiency curves, RGB-vs-13-band gain, pseudo-label gain, confusion
+#       matrices, per-class F1 heatmap) from the evaluation tables, and defines the shared names, colours and markers of
+#       the models.
+# Q: Where does it fit in the pipeline?
+#    A: Phase 7. scripts/evaluate.py (Phase 6) writes results/summary/eval/*.csv; scripts/make_figures.py loads them
+#       with pandas and calls the functions here, which write PNG files (normally into results/figures). Tables are
+#       built by eurosat_le.tables, which also reuses the names defined here.
+# Q: Does this file read run folders or train anything?
+#    A: No. Every function takes plain DataFrames (or arrays) and an output path, so it only plots results that already
+#       exist.
+# Q: Why does every figure function return a path or None?
+#    A: None means 'no data for this figure yet'. The script can then skip it with a message and still produce the other
+#       figures from a partial set of results.
+
 # The model names in the fixed order used everywhere (this order decides colours and table rows).
 MODELS = ["scratch_cnn", "resnet50", "vit_small", "vit_scratch"]
 # Human-readable model names for legends, titles and tables.
@@ -58,6 +118,11 @@ FRACTION_LABEL = {0.01: "1%", 0.1: "10%", 1.0: "100%"}
 VARIANT_LABEL = {"pl": "pseudo-label (global τ)", "plb": "pseudo-label (class-balanced)"}
 
 
+# Q: What does this function do?
+#    A: It returns the names of the mean and std columns in groups.csv for a metric: ('test_f1_mean', 'test_f1_std') for
+#       'f1' and ('test_acc_mean', 'test_acc_std') for anything else.
+# Q: Why is it a function used by both figures and tables?
+#    A: Both need the same column names; having one place avoids typing mistakes and keeps them consistent.
 def metric_columns(metric: str) -> tuple[str, str]:
     """Names of the mean and std columns of groups.csv for a metric.
 
@@ -70,6 +135,13 @@ def metric_columns(metric: str) -> tuple[str, str]:
     return f"test_{name}_mean", f"test_{name}_std"
 
 
+# Q: What does this function do?
+#    A: It lists the models that occur in a table's 'model' column, in the fixed MODELS order.
+# Q: Why walk through MODELS instead of using the order in the data?
+#    A: The order of rows in a CSV can change. The fixed order keeps colours, legends and bars in the same sequence in
+#       every figure.
+# Q: What are the input and output?
+#    A: A DataFrame with a 'model' column in; a list of model name strings out.
 def _models_present(df: pd.DataFrame) -> list[str]:
     """Models found in `df["model"]`, in the fixed MODELS order (not the order of appearance).
 
@@ -82,6 +154,14 @@ def _models_present(df: pd.DataFrame) -> list[str]:
     return [m for m in MODELS if m in set(df["model"])]
 
 
+# Q: What does this function do?
+#    A: It sets the x axis of a panel to a log scale with one tick per label fraction, written as 1%, 10%, 100%.
+# Q: Why a log scale?
+#    A: The fractions grow by a factor of 10 each time, so on a log axis they are evenly spaced and the small fractions
+#       are not squeezed against the left edge.
+# Q: Why minorticks_off, and what does it return?
+#    A: A log axis would add small in-between ticks that mean nothing here. The function returns nothing; it changes the
+#       axes in place.
 def _frac_ticks(ax, fractions) -> None:
     """Log-scaled x axis with one tick per label fraction, shown as 1% / 10% / 100%.
 
@@ -101,6 +181,15 @@ def _frac_ticks(ax, fractions) -> None:
     ax.minorticks_off()
 
 
+# Q: What does this function do?
+#    A: It takes wanted label heights and moves them apart (at least `gap` between neighbours) so the direct labels at
+#       the ends of the lines do not overlap. Heights are returned in the original order.
+# Q: Why is 'top' needed?
+#    A: Pushing labels up could move the highest one out of the plot. If it goes above 'top' it is pinned there and the
+#       labels below it are pushed down instead.
+# Q: Why process the labels from lowest to highest?
+#    A: Sorting with argsort lets each label be compared only with the next higher one; a label that is too close is
+#       moved up to exactly gap above its lower neighbour.
 def _spread(ys: list[float], gap: float, top: float | None = None) -> list[float]:
     """Nudge label heights apart so neighbouring labels do not overlap.
 
@@ -128,6 +217,13 @@ def _spread(ys: list[float], gap: float, top: float | None = None) -> list[float
     return list(out)
 
 
+# Q: What does this function do?
+#    A: It creates the output folder if needed, saves the figure to the path and closes the figure.
+# Q: Why close the figure?
+#    A: Several figures are made in one run; closing frees the memory and avoids matplotlib's warning about too many
+#       open figures.
+# Q: Why return the path?
+#    A: So each figure function can end with 'return _save(fig, path)' and callers get the written path.
 def _save(fig, path: Path) -> Path:
     """Create the parent folder, write the figure with the saved rcParams (see viz.apply_style), close it.
 
@@ -149,6 +245,19 @@ def _save(fig, path: Path) -> Path:
     return path
 
 
+# Q: What does this function do?
+#    A: It draws the test score against the label fraction for the supervised runs: one panel per input type (RGB, 13
+#       bands), one line per model, with error bars for the std over seeds, direct labels and a shared legend.
+# Q: Why do the panels share the y axis and why are the labels sometimes left out?
+#    A: A shared y axis lets the two panels be compared directly. If the line ends are so close that a label would have
+#       to move more than half a gap away from its own line, the label would sit next to a different line and mislead,
+#       so no direct labels are written there; the legend and the marker shapes still identify the lines.
+# Q: Why is a NaN std replaced by 0, and what is the gap based on?
+#    A: A single seed has no std (NaN); 0 draws no bar instead of failing. The gap is 6.5 percent of the visible y
+#       range, so it works for scores spanning 0.5-1.0 or only 0.97-0.99.
+# Q: What are the inputs and what is returned?
+#    A: groups (supervised rows are used), the output path and metric ('f1' or accuracy). It returns the path, or None
+#       if there are no supervised rows.
 def label_efficiency(groups: pd.DataFrame, path: Path, metric: str = "f1") -> Path | None:
     """Test score against label fraction: one line per model, RGB and 13-band side by side.
 
@@ -229,6 +338,18 @@ def label_efficiency(groups: pd.DataFrame, path: Path, metric: str = "f1") -> Pa
     return _save(fig, path)
 
 
+# Q: What does this function do?
+#    A: It shows how much the 13-band input improves test macro-F1 over RGB: for each label fraction and model a pale
+#       bar (mean over seeds) with one dot per seed (13-band minus RGB).
+# Q: Why show one dot per seed and a zero line?
+#    A: The dots show how much the seeds disagree, so a small gain with large spread is not over-read. The zero line
+#       separates 'extra bands help' (above) from 'RGB is better' (below).
+# Q: Why only the supervised pairs?
+#    A: If the table has a 'variant' column, the supervised rows are used so pseudo-label students do not mix into the
+#       comparison.
+# Q: What are the inputs and what is returned?
+#    A: pairs (compare_rgb_vs_ms_pairs.csv, with delta_f1) and an output path. It returns the path or None if there are
+#       no rows.
 def rgb_vs_ms_gain(pairs: pd.DataFrame, path: Path) -> Path | None:
     """Gain in test macro-F1 from the other 9-10 bands, by label fraction. One dot per seed.
 
@@ -285,6 +406,16 @@ def rgb_vs_ms_gain(pairs: pd.DataFrame, path: Path) -> Path | None:
     return _save(fig, path)
 
 
+# Q: What does this function do?
+#    A: It shows how much each pseudo-label student improves over its own teacher: one panel per input type, one bar per
+#       (variant, model, fraction) with a dot for every seed (student minus teacher).
+# Q: Why are class-balanced bars hatched, and why is the colour the model's colour?
+#    A: The hatching separates the 'plb' bars from the plain 'pl' bars without a new colour, and a model keeps its
+#       colour in every figure.
+# Q: What happens when a variant's table is missing?
+#    A: Variants whose table is None or empty are dropped; if none remain the function returns None.
+# Q: What does the zero line mean?
+#    A: Above it the student beats its teacher; below it the student is worse.
 def pseudo_label_gain(pairs: dict[str, pd.DataFrame], path: Path) -> Path | None:
     """Gain in test macro-F1 of each pseudo-label student over its own teacher; one dot per seed.
 
@@ -344,6 +475,18 @@ def pseudo_label_gain(pairs: dict[str, pd.DataFrame], path: Path) -> Path | None
     return _save(fig, path)
 
 
+# Q: What does this function do?
+#    A: It draws one row-normalised confusion matrix per panel (for example RGB and 13-band of the best model) side by
+#       side, with the percentage written in each cell.
+# Q: Why row-normalised and with one shared 0..1 colour scale?
+#    A: Dividing each row by its total shows the share of each true class, so classes with different sizes compare
+#       fairly; the same colour scale in all panels makes the panels directly comparable.
+# Q: Why are small cells left blank and some texts white?
+#    A: Cells under 0.5 percent would show a meaningless '0', so they are left empty. Text is white on dark cells (above
+#       0.55) and near-black on light cells so it stays readable.
+# Q: What are the inputs and what is returned?
+#    A: mats (title -> 10 x 10 matrix), the output path and a figure title. It returns the path, or None if mats is
+#       empty.
 def confusion_grid(mats: dict[str, np.ndarray], path: Path, title: str) -> Path | None:
     """Row-normalised confusion matrices side by side, shared colour scale 0..1.
 
@@ -400,6 +543,18 @@ def confusion_grid(mats: dict[str, np.ndarray], path: Path, title: str) -> Path 
     return _save(fig, path)
 
 
+# Q: What does this function do?
+#    A: It draws a heatmap of the per-class test F1 (mean over seeds) with classes down and one column per model and
+#       input type, with the value written in every cell.
+# Q: Why does the colour scale start just below the lowest value instead of at 0?
+#    A: Most classes are near-perfect, so a scale from 0 would show almost one colour. Starting at the minimum minus
+#       0.05 (not below 0) keeps small differences visible; the printed numbers give the exact levels.
+# Q: Why is pivot_table used, and what does the 'multi' flag do?
+#    A: pivot_table turns the long table (one row per class, model, input) into a class-by-column grid. With several
+#       models each column heading shows model and input; with one model the name goes into the title.
+# Q: What are the inputs and what is returned?
+#    A: per_class (supervised rows at `fraction` are used), the exact fraction value and an output path. It returns the
+#       path, or None if no rows match.
 def per_class_heatmap(per_class: pd.DataFrame, fraction: float, path: Path) -> Path | None:
     """Per-class test F1 (mean over seeds): classes down, model x input across.
 
