@@ -83,6 +83,20 @@ def test_paired_bootstrap():
     assert d > 0 and lo > 0 and lo <= d <= hi
 
 
+def test_paired_bootstrap_fixed_seed_values():
+    """Pins the exact output for a fixed seed, so a faster implementation must give the same numbers."""
+    # Small fake test set: run a is about 70% correct, run b fixes about half of a's mistakes.
+    rng = np.random.default_rng(1)
+    y = rng.integers(0, 10, 500)
+    a = np.where(rng.random(500) < 0.7, y, rng.integers(0, 10, 500))
+    b = np.where(rng.random(500) < 0.5, y, a)
+    d, lo, hi = paired_bootstrap(y, a, b, n_boot=300, seed=3)
+    # Expected values were produced by the original per-resample loop (before the batching change).
+    assert d == pytest.approx(0.137514591926854, abs=1e-9)
+    assert lo == pytest.approx(0.10746943016001925, abs=1e-9)
+    assert hi == pytest.approx(0.16831328287475714, abs=1e-9)
+
+
 def test_compare_aligns_ids_and_pairs_by_seed(runs_dir):
     runs = load_runs(runs_dir)
     pairs = compare(runs, "modality", "rgb", "ms", n_boot=100)

@@ -144,16 +144,53 @@ def paired_bootstrap(y, pred_a, pred_b, n_boot: int = 1000, seed: int = 0) -> tu
     paired bootstrap). Returns (delta, ci_low, ci_high); the interval is the 2.5th/97.5th percentile of
     the bootstrap deltas, and `delta` is the point estimate on the original test set. The fixed `seed`
     keeps the intervals reproducible.
+
+    Resamples are processed in batches of `_BOOT_BATCH`: the indices of a whole batch are drawn with one
+    `rng.integers` call, the confusion counts come from one `np.bincount`, and macro-F1 is computed for the
+    batch at once. NumPy's Generator fills an [B, N] request element by element from the same bit stream
+    as B separate [N] requests, so the draws (and the result for a given seed) are the same as in a plain
+    per-resample loop and do not depend on the batch size; tests/test_evaluate.py pins the values. Extra
+    memory is about 3 * `_BOOT_BATCH` * N int64 values (about 10 MB for the 4,050 test images).
     """
     rng = np.random.default_rng(seed)
-    delta = macro_f1_fast(y, pred_b) - macro_f1_fast(y, pred_a)
+    delta = macro_f1_fast(y, pred_b) - macro_f1_fast(y, pred_a)  # point estimate on the real test set
+    y, pred_a, pred_b = np.asarray(y), np.asarray(pred_a), np.asarray(pred_b)
     n = len(y)
-    boots = np.empty(n_boot)
-    for i in range(n_boot):
-        idx = rng.integers(0, n, n)
-        boots[i] = macro_f1_fast(y[idx], pred_b[idx]) - macro_f1_fast(y[idx], pred_a[idx])
-    lo, hi = np.percentile(boots, [2.5, 97.5])
+    # Encode each image as one number: its cell (row = true class, column = predicted) in the K x K
+    # confusion matrix. A resample then only needs to gather these codes and count them.
+    code_a, code_b = y * K + pred_a, y * K + pred_b  # cell of the confusion matrix for each image
+    boots = np.empty(n_boot)  # one macro-F1 difference per resample
+    for start in range(0, n_boot, _BOOT_BATCH):
+        stop = min(start + _BOOT_BATCH, n_boot)  # the last batch may be smaller
+        # Row r holds the n image indices of resample start + r (drawn with replacement). The SAME rows
+        # are used for both runs, which is what makes the bootstrap paired.
+        idx = rng.integers(0, n, (stop - start, n))
+        boots[start:stop] = _batched_macro_f1(code_b[idx]) - _batched_macro_f1(code_a[idx])
+    lo, hi = np.percentile(boots, [2.5, 97.5])  # 95% interval from the middle 95% of the resamples
     return float(delta), float(lo), float(hi)
+
+
+# Resamples per batch: large enough that the Python loop runs only n_boot / 100 times, small enough that a
+# batch of the 4,050 test images stays at a few MB.
+_BOOT_BATCH = 100
+
+
+def _batched_macro_f1(codes: np.ndarray) -> np.ndarray:
+    """Macro-F1 for each row of `codes` [B, N], where a code is `true * K + predicted`.
+
+    Same formula as `macro_f1_fast`, applied to B resamples with a single bincount (row b gets offset
+    b * K * K). Returns a float array of length B.
+    """
+    b = len(codes)
+    # Shift row r by r * K * K, so the counts of every resample land in their own block of K * K bins.
+    offset = (np.arange(b) * K * K)[:, None]
+    # One bincount for the whole batch, reshaped to B confusion matrices [B, K, K] (rows = true class).
+    cm = np.bincount((codes + offset).ravel(), minlength=b * K * K).reshape(b, K, K)
+    tp = np.diagonal(cm, axis1=1, axis2=2).astype(float)  # correct predictions per class, per resample
+    denom = cm.sum(1) + cm.sum(2)  # predicted count + true count, per class
+    # F1 = 2TP / (predicted + true); a class absent from both gets F1 = 0 (as sklearn's zero_division=0).
+    f1 = np.divide(2 * tp, denom, out=np.zeros((b, K)), where=denom > 0)
+    return f1.mean(1)  # macro-F1 = unweighted mean over the K classes
 
 
 def compare(runs: pd.DataFrame, factor: str, a, b, n_boot: int = 1000) -> pd.DataFrame:
