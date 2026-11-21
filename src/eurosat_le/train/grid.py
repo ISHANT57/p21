@@ -11,15 +11,22 @@ the Phase 5 pseudo-label students from the same grid, see `PL_MODELS` / `PL_FRAC
   tuning, and their names carry the suffix `tune_lr<lr>` so they never collide with grid runs.
 """
 
+# Makes type hints such as `int | None` work as plain text on older Python versions.
 from __future__ import annotations
 
+# product: builds every combination of several lists (the "grid").
 from itertools import product
 
+# Project constants: the label fractions and subset seeds of the study, and the repository root folder.
 from eurosat_le.constants import LABEL_FRACTIONS, REPO_ROOT, SUBSET_SEEDS
+# TrainConfig describes one run; load_config builds one from a YAML file plus overrides.
 from eurosat_le.train.config import TrainConfig, load_config
 
+# Folder holding one YAML file per model with its frozen hyper-parameters.
 CONFIG_DIR = REPO_ROOT / "configs"
+# The three models compared in the main study.
 MAIN_MODELS = ["scratch_cnn", "resnet50", "vit_small"]
+# The two input types: 3-band RGB and all-13-band multispectral.
 MODALITIES = ["rgb", "ms"]
 # Phase 5 scope: scratch CNN + one pretrained model (switch to the best pretrained model
 # once Phase 4 results are in), 1% and 10% labels.
@@ -33,6 +40,7 @@ TUNE_LRS = {
     "vit_small": [5e-5, 1e-4, 2e-4],
     "vit_scratch": [5e-4, 1e-3, 2e-3],
 }
+# The single experiment cell on which learning rates are tuned.
 TUNE_CELL = {"modality": "rgb", "fraction": 0.1, "seed": 0}
 
 
@@ -48,6 +56,9 @@ def main_grid(models=MAIN_MODELS, modalities=MODALITIES, fractions=LABEL_FRACTIO
         complete coverage of the grid for the early seeds. `--shard k/n` in run_grid.py later takes
         every n-th entry of this list, so the ordering also decides which runs a shard gets.
     """
+    # One config per combination. `product` varies the LAST name fastest, with the seed as the outermost loop
+    # (hence seed-first order). Each config starts from the model's YAML file, then sets the cell's input type,
+    # label fraction and seed, then any extra overrides.
     return [
         load_config(CONFIG_DIR / f"{m}.yaml", modality=mod, fraction=f, seed=s, **overrides)
         for s, m, mod, f in product(seeds, models, modalities, fractions)
@@ -57,9 +68,18 @@ def main_grid(models=MAIN_MODELS, modalities=MODALITIES, fractions=LABEL_FRACTIO
 def tune_grid(models=MAIN_MODELS, **overrides) -> list[TrainConfig]:
     """LR sweep on one cell (RGB, 10% labels, seed 0), selected on validation macro-F1 only.
 
+    Args:
+        models: which models to tune.
+        **overrides: fields that replace the default tuning cell or any other setting.
+    Returns:
+        One TrainConfig per (model, candidate learning rate).
+
     Tuning runs never evaluate the test set. Run names end in `_tune_lr<lr>`. Extra `overrides`
     can change the cell (modality / fraction / seed) or any other field.
     """
+    # For every model and each of its candidate learning rates, build a config from the model's YAML with
+    # that lr, a unique name suffix (so it never overwrites a grid run) and the test set switched off.
+    # `{**TUNE_CELL, **overrides}` merges the dicts so that user overrides beat the default tuning cell.
     return [
         load_config(CONFIG_DIR / f"{m}.yaml", lr=lr, name_suffix=f"tune_lr{lr:g}", evaluate_test=False,
                     **{**TUNE_CELL, **overrides})

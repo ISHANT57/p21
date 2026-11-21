@@ -27,19 +27,24 @@ Design decisions:
       duplicates that fall into different splits (a possible train/test leak).
 """
 
+# hashlib fingerprints images to find duplicates; json writes the summary files.
 import hashlib
 import json
 
+# numpy does the array maths; tifffile reads the 13-band GeoTIFFs; PIL reads the RGB JPEGs; tqdm shows progress bars.
 import numpy as np
 import tifffile
 from PIL import Image
 from tqdm import tqdm
 
+# viz holds the shared plot style and colours.
 from eurosat_le import viz
+# Class names, dataset description, MS band names and the important folders.
 from eurosat_le.constants import CLASSES, DATASETS, MS_BANDS, RAW_DIR, RESULTS_DIR, SPLITS_DIR
+# check_integrity verifies the split files are unchanged; load_split reads split.csv.
 from eurosat_le.data.splits import check_integrity, load_split
 
-OUT = RESULTS_DIR / "dataset_inspection"
+OUT = RESULTS_DIR / "dataset_inspection"  # folder for all outputs of this script
 
 
 class RunningStats:
@@ -51,90 +56,125 @@ class RunningStats:
     """
 
     def __init__(self, c):
+        """Start an empty accumulator for `c` channels (3 for RGB, 13 for multispectral)."""
+        # n = number of pixels seen; s = per-channel sum of values; ss = per-channel sum of squared values.
         self.n, self.s, self.ss = 0, np.zeros(c), np.zeros(c)
 
     def add(self, x):  # x: (H, W, C)
         """Add one image (H, W, C), any numeric dtype; every pixel counts equally."""
+        # Flatten to a list of pixels with C values each, in float64 so the sums do not overflow or lose precision.
         x = x.reshape(-1, x.shape[-1]).astype(np.float64)
+        # Count the pixels, and add this image's per-channel sums and sums of squares to the totals.
         self.n += len(x)
         self.s += x.sum(0)
         self.ss += (x**2).sum(0)
 
     def result(self):
         """Return (mean, std), each an array with one value per channel."""
+        # mean = sum / count; std from the identity var = E[x^2] - (E[x])^2.
         mean = self.s / self.n
         return mean, np.sqrt(self.ss / self.n - mean**2)
 
 
 def main() -> None:
     """Inspect the data on disk and write norm_stats.json plus the inspection outputs (see module docstring)."""
+    # Make sure the output folder exists and switch on the project's plot style.
     OUT.mkdir(parents=True, exist_ok=True)
     viz.apply_style()
     check_integrity(SPLITS_DIR)  # make sure "train" below refers to the committed, unmodified split
+    # Table of all images with their class, label and split (train/val/test).
     df = load_split(SPLITS_DIR)
+    # The summary dictionary that is saved as summary.json at the end.
     summary = {"n_samples": len(df), "classes": CLASSES}
 
+    # Count images per class and split (rows follow the CLASSES order).
     counts = df.pivot_table(index="class", columns="split", values="id", aggfunc="count").reindex(CLASSES)
+    # Put the columns in a fixed order and add a total per class.
     counts = counts[["train", "val", "test"]]
     counts["total"] = counts.sum(axis=1)
+    # Save the table, add it to the summary and show it on screen.
     counts.to_csv(OUT / "class_counts.csv")
     summary["class_counts"] = counts.to_dict(orient="index")
     print(counts.to_string())
 
     # ---- RGB ---------------------------------------------------------------
+    # Folder with the RGB JPEG images.
     rgb_dir = RAW_DIR / DATASETS["rgb"]["folder"]
+    # Accumulator for 3 channels, the set of distinct image shapes/dtypes seen, and pixel-hash -> images with it.
     rgb_stats, shapes, hashes = RunningStats(3), set(), {}
+    # Go through every image together with its split name, with a progress bar.
     for sid, split in tqdm(zip(df["id"], df["split"]), total=len(df), desc="RGB"):
         path = rgb_dir / f"{sid}.jpg"
+        # Decode the JPEG into an array of shape (H, W, 3).
         img = np.asarray(Image.open(path).convert("RGB"))
+        # Record the image's shape and data type (expected to be the same for every image).
         shapes.add((img.shape, str(img.dtype)))
         # MD5 of the decoded pixels (not the file) is only a duplicate fingerprint, not a security check.
+        # Group images by fingerprint; groups with more than one member are exact duplicates.
         hashes.setdefault(hashlib.md5(img.tobytes()).hexdigest(), []).append((sid, split))
         if split == "train":  # leakage guard: statistics use train images only
+            # Scale pixel values from 0..255 to 0..1 before accumulating.
             rgb_stats.add(img / 255.0)
+    # Fingerprints shared by more than one image: the duplicate groups.
     dups = [v for v in hashes.values() if len(v) > 1]
     # Duplicate groups whose members are in more than one split would be train/test leakage.
     cross = [v for v in dups if len({s for _, s in v}) > 1]
+    # Store the RGB findings in the summary (only the first 10 duplicate examples, to keep the file small).
     summary["rgb"] = {
         "shapes": sorted(map(str, shapes)),
         "exact_pixel_duplicate_groups": len(dups),
         "duplicate_groups_spanning_splits": len(cross),
         "duplicate_examples": dups[:10],
     }
+    # Final per-channel mean and std of the train images, rounded and converted to plain lists for JSON.
     mean, std = rgb_stats.result()
     norm = {"rgb": {"scale": "pixel/255", "mean": mean.round(6).tolist(), "std": std.round(6).tolist()}}
     print(f"RGB shapes {shapes}; duplicate groups {len(dups)} (across splits: {len(cross)})")
 
     # ---- 13-band MS ----------------------------------------------------------
+    # Folder with the 13-band GeoTIFFs; this part is skipped when they have not been downloaded.
     ms_dir = RAW_DIR / DATASETS["ms"]["folder"]
     if ms_dir.is_dir():
+        # Accumulator for 13 channels and the set of distinct shapes/dtypes seen.
         ms_stats, ms_shapes = RunningStats(13), set()
+        # Running per-band minimum and maximum over all pixels (start at +inf / -inf so any value replaces them).
         bmin, bmax = np.full(13, np.inf), np.full(13, -np.inf)
+        # Sum of per-image band means for each class, and the number of train images per class (for class means).
         class_sum = np.zeros((len(CLASSES), 13))
         class_n = np.zeros(len(CLASSES))
+        # Go through every image with its split and class number, with a progress bar.
         for sid, split, label in tqdm(zip(df["id"], df["split"], df["label"]), total=len(df), desc="MS"):
             x = tifffile.imread(ms_dir / f"{sid}.tif")  # (64, 64, 13) uint16, channels in file order (B8A last)
             ms_shapes.add((x.shape, str(x.dtype)))
+            # Update the per-band min and max with this image's values.
             bmin = np.minimum(bmin, x.reshape(-1, 13).min(0))
             bmax = np.maximum(bmax, x.reshape(-1, 13).max(0))
             if split == "train":  # leakage guard: statistics and class means use train images only
+                # Add this image to the normalisation statistics.
                 ms_stats.add(x)
+                # Add its per-band mean to its class total (the average is taken later by dividing by class_n).
                 class_sum[label] += x.reshape(-1, 13).mean(0)
                 class_n[label] += 1
+        # Final per-band mean and std over the train images.
         mean, std = ms_stats.result()
+        # Record them in raw digital-number units, together with the band order they refer to.
         norm["ms"] = {"scale": "raw DN (reflectance x 10000)", "bands": MS_BANDS,
                       "mean": mean.round(3).tolist(), "std": std.round(3).tolist()}
+        # Add the MS findings (shapes and value range per band) to the summary.
         summary["ms"] = {"shapes": sorted(map(str, ms_shapes)),
                          "band_min": dict(zip(MS_BANDS, bmin.tolist())),
                          "band_max": dict(zip(MS_BANDS, bmax.tolist()))}
         print(f"MS shapes {ms_shapes}")
+        # Draw the per-class spectral heatmap (class means = class_sum / class_n).
         plot_spectral(class_sum / class_n[:, None], mean, std)
     else:
         print("MS data not found; skipping 13-band statistics.")
 
+    # Note in the file how the statistics were obtained, then save the normalisation statistics and the summary.
     norm["computed_on"] = "train split only (splits/split.csv)"
     (SPLITS_DIR / "norm_stats.json").write_text(json.dumps(norm, indent=2) + "\n")
     (OUT / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n")
+    # Draw the remaining two figures.
     plot_samples(df, rgb_dir)
     plot_counts(counts)
     print(f"Wrote {OUT} and {SPLITS_DIR / 'norm_stats.json'}")
@@ -142,19 +182,27 @@ def main() -> None:
 
 def plot_samples(df, rgb_dir, per_class=5, seed=0):
     """Save a grid of `per_class` randomly chosen RGB patches per class (fixed seed, so the figure is repeatable)."""
+    # matplotlib is imported here so the rest of the script works without it until a plot is drawn.
     import matplotlib.pyplot as plt
 
+    # Random generator with a fixed seed -> the same images are picked every time.
     rng = np.random.default_rng(seed)
+    # One row per class, `per_class` columns, each cell about 1.1 inches wide.
     fig, axes = plt.subplots(len(CLASSES), per_class, figsize=(per_class * 1.1, len(CLASSES) * 1.1))
     for r, cls in enumerate(CLASSES):
+        # All image ids that belong to this class.
         ids = df.loc[df["class"] == cls, "id"].to_numpy()
+        # Draw `per_class` different ids at random and show each one in its own cell.
         for c, sid in enumerate(rng.choice(ids, per_class, replace=False)):
             ax = axes[r, c]
             ax.imshow(Image.open(rgb_dir / f"{sid}.jpg"))
+            # Hide axis ticks, grid lines and the frame so only the picture remains.
             ax.set_xticks([]), ax.set_yticks([]), ax.grid(False)
             for s in ax.spines.values():
                 s.set_visible(False)
+        # Write the class name to the left of the row.
         axes[r, 0].set_ylabel(cls, rotation=0, ha="right", va="center", fontsize=8, color=viz.TEXT_PRIMARY)
+    # Make the gaps between pictures small, then save the figure and free its memory.
     fig.subplots_adjust(wspace=0.05, hspace=0.05)
     fig.savefig(OUT / "samples_rgb.png")
     plt.close(fig)
@@ -162,18 +210,24 @@ def plot_samples(df, rgb_dir, per_class=5, seed=0):
 
 def plot_counts(counts):
     """Save a horizontal bar chart of the total number of images per class (from the class_counts table)."""
+    # matplotlib is imported here so the rest of the script works without it until a plot is drawn.
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(5.5, 3.2))
+    # Bar positions, reversed so the first class is drawn at the top.
     y = np.arange(len(CLASSES))[::-1]
     ax.barh(y, counts["total"], height=0.6, color=viz.CATEGORICAL[0])
+    # Print the exact count (with thousands separator) just to the right of each bar.
     for yi, v in zip(y, counts["total"]):
         ax.text(v + 30, yi, f"{v:,}", va="center", fontsize=8, color=viz.TEXT_SECONDARY)
+    # Label the bars with the class names and add axis label and title.
     ax.set_yticks(y, CLASSES)
     ax.set_xlabel("Images")
     ax.set_title("EuroSAT images per class")
+    # No horizontal grid lines; leave 12% free space on the right so the count labels fit.
     ax.grid(axis="y", visible=False)
     ax.set_xlim(0, counts["total"].max() * 1.12)
+    # Save the figure and free its memory.
     fig.savefig(OUT / "class_counts.png")
     plt.close(fig)
 
@@ -184,26 +238,36 @@ def plot_spectral(class_means, band_mean, band_std):
     `class_means` is (n_classes, 13) in file order; `band_mean` / `band_std` are the train-split statistics
     per band, so each cell shows how far a class's mean is from the overall mean, in std units.
     """
+    # matplotlib is imported here so the rest of the script works without it until a plot is drawn.
     import matplotlib.pyplot as plt
 
     # Show bands in wavelength order (B8A between B08 and B09), not file order.
+    # `order` = for each band in wavelength order, its column position in the file-order arrays.
     order = [MS_BANDS.index(b) for b in sorted(MS_BANDS, key=lambda b: (int(b[1:].rstrip("A")), b))]
+    # z-score: (class mean - overall mean) / overall std, with the columns reordered by wavelength.
     z = ((class_means - band_mean) / band_std)[:, order]
+    # Largest absolute z-value, used to make the colour scale symmetric around zero.
     lim = np.abs(z).max()
     fig, ax = plt.subplots(figsize=(7, 3.8))
+    # Draw the heatmap with a diverging colour map (blue-ish below the mean, red-ish above).
     im = ax.imshow(z, cmap=viz.DIVERGING, vmin=-lim, vmax=lim, aspect="auto")
+    # Label the columns with band names (in wavelength order) and the rows with class names.
     ax.set_xticks(range(13), [MS_BANDS[i] for i in order], rotation=45)
     ax.set_yticks(range(len(CLASSES)), CLASSES)
+    # Remove grid lines and the frame for a clean heatmap.
     ax.grid(False)
     for s in ax.spines.values():
         s.set_visible(False)
+    # Add a colour bar explaining the scale.
     cb = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.02)
     cb.set_label("Class mean vs. all-train mean (std units)")
     cb.outline.set_visible(False)
     ax.set_title("Spectral signature by class (train split)")
+    # Save the figure and free its memory.
     fig.savefig(OUT / "spectral_signatures.png")
     plt.close(fig)
 
 
+# Run main() only when the file is executed as a script, not when it is imported.
 if __name__ == "__main__":
     main()

@@ -18,25 +18,41 @@ and early-stops on the true validation labels exactly as for a supervised run, p
 once, and finally records pseudo-label accuracy against the hidden labels (analysis only).
 """
 
+# Makes type hints such as `int | None` work as plain text on older Python versions.
 from __future__ import annotations
 
+# re: regular expressions, used to read the "pl", "pl2" ... suffix; fields: lists the fields of a dataclass.
 import re
 from dataclasses import fields
 
+# yaml: reads the teacher's saved config.yaml.
 import yaml
 
+# make_pseudo_labels: creates the pseudo-label CSV from the teacher's predictions.
+# TrainConfig: the settings of one run. RUNS_DIR / run: where runs live and the function that trains one.
 from eurosat_le.ssl.pseudo_label import make_pseudo_labels
 from eurosat_le.train.config import TrainConfig
 from eurosat_le.train.engine import RUNS_DIR, run
 
 
 def student_suffix(teacher_suffix: str) -> str:
-    """'' -> 'pl', 'pl' -> 'pl2', 'pl2' -> 'pl3' (one more self-training round)."""
+    """'' -> 'pl', 'pl' -> 'pl2', 'pl2' -> 'pl3' (one more self-training round).
+
+    Args:
+        teacher_suffix: the `name_suffix` of the teacher run ("" for a plain supervised run).
+    Returns:
+        The suffix for the student's run name.
+    Raises:
+        ValueError: if the teacher's suffix is something else (e.g. a tuning run).
+    """
+    # A plain supervised teacher gives the first-round student "pl".
     if not teacher_suffix:
         return "pl"
+    # Accept only "pl" optionally followed by a number.
     m = re.fullmatch(r"pl(\d*)", teacher_suffix)  # rounds continue from default students only
     if not m:
         raise ValueError(f"teacher suffix {teacher_suffix!r} is not a supervised or pseudo-label run")
+    # "pl" counts as round 1, so add one to the existing round number (empty digits are treated as 1).
     return f"pl{int(m.group(1) or 1) + 1}"
 
 
@@ -48,14 +64,25 @@ def student_config(teacher: str | TrainConfig, **overrides) -> TrainConfig:
     the new suffix), and sets `teacher` and `pseudo_labels` ("pseudo_labels.csv", resolved inside the
     student's own run folder). `overrides` are TrainConfig fields applied on top; `name_suffix` in
     them wins over the automatic suffix. Unknown keys in an old config.yaml are dropped.
+
+    Args:
+        teacher: the teacher's run name, or a TrainConfig describing a teacher that may not exist yet.
+        **overrides: TrainConfig fields to change for the student.
+    Returns:
+        The student's TrainConfig.
     """
     if isinstance(teacher, str):
+        # Teacher given by name: read the settings it was trained with.
         values = yaml.safe_load((RUNS_DIR / teacher / "config.yaml").read_text())
         name = teacher
     else:
+        # Teacher given as a config object: use its settings directly.
         values, name = teacher.to_dict(), teacher.run_name
+    # Keep only keys that TrainConfig still knows (old files may contain removed settings) and drop the
+    # old run name, so the student gets a new one.
     known = {f.name for f in fields(TrainConfig)}
     values = {k: v for k, v in values.items() if k in known and k != "run_name"}
+    # Use an explicit suffix override if given, otherwise the next automatic one ("pl", "pl2", ...).
     suffix = overrides.pop("name_suffix", None) or student_suffix(values.get("name_suffix") or "")
     # fraction, seed and model settings stay those of the teacher: same labelled subset, same init seed
     values.update(name_suffix=suffix, teacher=name, pseudo_labels="pseudo_labels.csv", **overrides)
@@ -77,15 +104,22 @@ def train_student(teacher_name: str, target_precision: float = 0.95, balance: bo
     Side effects: writes pseudo_labels.csv, pseudo_label_*.csv/json and the usual run files into the
     student's run folder. A finished student is skipped before any pseudo-label files are rewritten.
     """
+    # The teacher's run folder.
     tdir = RUNS_DIR / teacher_name
+    # The teacher must be finished and must have saved the predictions the pseudo-labels are built from.
     for f in ("metrics.json", "preds_val.npz", "preds_unlabelled.npz"):
         if not (tdir / f).exists():
             raise FileNotFoundError(f"teacher {teacher_name} has no {f}; finish the supervised run first")
+    # Build the student's settings and locate its run folder.
     cfg = student_config(teacher_name, **overrides)
     sdir = RUNS_DIR / cfg.run_name
+    # If the student already finished, `run` just returns its stored metrics; no pseudo-label files are rewritten.
     if (sdir / "metrics.json").exists() and not overwrite:
         return run(cfg)  # skips and returns the stored metrics
+    # Choose the confidence threshold on validation data and write the pseudo-label files into the student folder.
     sel = make_pseudo_labels(tdir, sdir, cfg.fraction, cfg.seed, target_precision, balance)
+    # Report which threshold was chosen and how many unlabelled images received a pseudo-label.
     print(f"[{cfg.run_name}] teacher {teacher_name}: tau={sel['tau']:.2f} "
           f"(val precision {sel['val_precision_at_tau']:.3f}), {sel['n_selected']}/{sel['pool_size']} pseudo-labels")
+    # Train the student on labelled + pseudo-labelled images and return its metrics.
     return run(cfg, overwrite=overwrite)
