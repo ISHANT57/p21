@@ -1,4 +1,19 @@
-"""Download and extract EuroSAT (RGB and/or 13-band MS) with hash verification."""
+"""Download and extract EuroSAT (RGB and/or 13-band MS) with hash verification.
+
+First step of the pipeline (entry point: scripts/download_data.py). The mirrors, sizes and
+hashes for each input type are listed in eurosat_le.constants.DATASETS.
+
+Design decisions:
+    - Every archive is checked against its expected byte size and a fixed hash (SHA-256 for
+      the Hugging Face mirror, MD5 for Zenodo) before it is extracted. Everyone therefore
+      works on byte-identical data, and a corrupt or altered download is discarded.
+    - Mirrors are tried in order; a network error or a bad hash falls through to the next one.
+    - Downloads go to a ".part" file and are renamed only when complete.
+    - Extraction refuses archive members that would land outside the target folder.
+    - Extraction goes to a temporary folder first; the class folders are then renamed to
+      data/raw/<EuroSAT_RGB | EuroSAT_MS>/<Class>/..., so the layout does not depend on the
+      folder names inside each mirror's archive.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +28,7 @@ from eurosat_le.constants import CLASSES, DATASETS, RAW_DIR
 
 
 def file_hash(path: Path, algo: str, chunk: int = 1 << 20) -> str:
+    """Hex digest of a file using hashlib algorithm `algo` ("md5", "sha256", ...), read in 1 MiB chunks."""
     h = hashlib.new(algo)
     with open(path, "rb") as f:
         while block := f.read(chunk):
@@ -21,6 +37,10 @@ def file_hash(path: Path, algo: str, chunk: int = 1 << 20) -> str:
 
 
 def _download(url: str, dest: Path) -> None:
+    """Stream `url` to `dest`, printing progress about every 5%.
+
+    Writes to "<dest>.part" and renames on success, so `dest` only exists for a finished download.
+    """
     tmp = dest.with_suffix(dest.suffix + ".part")
     print(f"Downloading {url}\n  -> {dest}", flush=True)
     with urllib.request.urlopen(url, timeout=60) as resp, open(tmp, "wb") as out:
@@ -36,6 +56,11 @@ def _download(url: str, dest: Path) -> None:
 
 
 def _verify(path: Path, mirror: dict) -> None:
+    """Raise RuntimeError unless `path` has the byte size and hash listed in the `mirror` spec.
+
+    The cheap size check runs first to catch truncated downloads before hashing the whole file.
+    The mirror spec holds either a "sha256" or an "md5" entry; sha256 is preferred when present.
+    """
     size = path.stat().st_size
     if size != mirror["size"]:
         raise RuntimeError(f"incomplete download {path}: {size} bytes, expected {mirror['size']}")
@@ -49,6 +74,8 @@ def _verify(path: Path, mirror: dict) -> None:
 def _safe_extract(zip_path: Path, out_dir: Path) -> None:
     """Extract a zip, refusing members that would land outside out_dir."""
     out_dir = out_dir.resolve()
+    # Guard against "zip slip": names like "../x" or absolute paths that would write outside out_dir.
+    # All members are checked before anything is extracted.
     with zipfile.ZipFile(zip_path) as zf:
         for member in zf.infolist():
             target = (out_dir / member.filename).resolve()
@@ -58,7 +85,11 @@ def _safe_extract(zip_path: Path, out_dir: Path) -> None:
 
 
 def _find_class_root(root: Path) -> Path:
-    """Return the directory under `root` that directly contains all class folders."""
+    """Return the directory under `root` that directly contains all class folders.
+
+    The archives wrap the class folders in differently named parent directories, so search
+    `root` and its sub-directories (in sorted order) for one that has all 10 CLASSES.
+    """
     for d in [root, *sorted(p for p in root.rglob("*") if p.is_dir())]:
         if all((d / c).is_dir() for c in CLASSES):
             return d
@@ -70,6 +101,11 @@ def fetch(name: str, raw_dir: Path = RAW_DIR, keep_zip: bool = True, mirror: str
 
     Tries each mirror in order (or only `mirror` if given). Returns the folder
     holding the class sub-directories.
+
+    Idempotent: if the target folder already exists and is non-empty, nothing is downloaded and
+    it is NOT re-verified. A zip left in raw_dir is re-verified rather than re-downloaded; a zip
+    that fails verification is deleted before the next mirror is tried. If `keep_zip` is False
+    the verified zip is removed after extraction. Raises RuntimeError if every mirror fails.
     """
     spec = DATASETS[name]
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -107,4 +143,8 @@ def fetch(name: str, raw_dir: Path = RAW_DIR, keep_zip: bool = True, mirror: str
 
 
 def disk_free_gb(path: Path) -> float:
+    """Free disk space (decimal GB) on the volume holding `path`.
+
+    The MS version needs about 2.1 GB for the zip plus about 2.9 GB once extracted.
+    """
     return shutil.disk_usage(path).free / 1e9

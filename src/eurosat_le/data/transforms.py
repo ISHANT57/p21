@@ -11,6 +11,20 @@ Policies:
     strong  weak + random brightness/contrast, Gaussian noise and blur (each
             p=0.5) + cutout. Brightness/contrast use one gain and offset for all
             bands, so the spectral shape of each pixel is preserved up to scale.
+
+Pipeline position: build_transform() is called by eurosat_le.data.loaders. The transforms act on
+tensors that eurosat_le.data.datasets has already normalised (per-channel train-only mean/std),
+so "0" means the band mean. In the strong policy the cutout fill value of 0 and the additive
+offset and noise are all expressed in these normalised units.
+
+Design decisions:
+    - Overhead images have no natural "up", so flips and 90-degree rotations are label-preserving.
+    - Nothing here is RGB-specific (no hue/saturation jitter), so 3-band and 13-band runs get the
+      same augmentation and any difference between them is not due to the augmentation policy.
+    - The weak policy is used for labelled training; the strong one only (together with weak,
+      through TwoViews) for unlabelled data in semi-supervised training.
+    - Randomness comes from torch's global RNG (torch.rand / randint), which is seeded per
+      DataLoader worker (see eurosat_le.utils.seed_worker and the loader generator).
 """
 
 from __future__ import annotations
@@ -20,7 +34,11 @@ from torchvision.transforms import v2
 
 
 class RandomD4:
-    """Random element of the dihedral group D4: rotate by k*90 degrees, then maybe flip."""
+    """Random element of the dihedral group D4: rotate by k*90 degrees, then maybe flip.
+
+    The 4 rotations x 2 flip choices give the 8 symmetries of a square, each with probability 1/8.
+    Works on any (..., H, W) tensor, so any number of channels.
+    """
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         k = int(torch.randint(4, (1,)))
@@ -31,7 +49,11 @@ class RandomD4:
 
 
 class RandomGainOffset:
-    """x * a + b with one (a, b) shared by all channels (works in normalised units)."""
+    """x * a + b with one (a, b) shared by all channels (works in normalised units).
+
+    Applied with probability `p`. Using the same gain and offset for every band avoids changing
+    the relative spectral shape of a pixel, which matters for the 13-band input.
+    """
 
     def __init__(self, gain=(0.75, 1.25), offset=(-0.25, 0.25), p=0.5):
         self.gain, self.offset, self.p = gain, offset, p
@@ -45,6 +67,8 @@ class RandomGainOffset:
 
 
 class RandomGaussianNoise:
+    """With probability `p`, add i.i.d. Gaussian noise (std `sigma`, in normalised units) to every value."""
+
     def __init__(self, sigma=0.1, p=0.5):
         self.sigma, self.p = sigma, p
 
@@ -55,8 +79,16 @@ class RandomGaussianNoise:
 
 
 def build_transform(policy: str = "none", size: int = 64):
+    """Return the augmentation callable for `policy` ("none", "weak" or "strong").
+
+    "none" returns None (the dataset then applies no transform). `size` is the output side of the
+    random resized crop; the default 64 matches the native patch size, so the image size never
+    changes. Raises ValueError for an unknown policy.
+    """
     if policy == "none":
         return None
+    # The crop keeps 75-100% of the image area (torchvision's default aspect-ratio range) and is
+    # resized back to `size`, so every output has the same shape.
     weak = [RandomD4(), v2.RandomResizedCrop(size, scale=(0.75, 1.0), antialias=True)]
     if policy == "weak":
         return v2.Compose(weak)
@@ -65,6 +97,7 @@ def build_transform(policy: str = "none", size: int = 64):
             *weak,
             RandomGainOffset(),
             RandomGaussianNoise(),
+            # 3x3 kernel: mild blur, since the patches are only 64x64.
             v2.RandomApply([v2.GaussianBlur(3, sigma=(0.1, 1.0))], p=0.5),
             v2.RandomErasing(p=1.0, scale=(0.02, 0.15), value=0.0),  # cutout; 0 = band mean
         ])
@@ -72,7 +105,11 @@ def build_transform(policy: str = "none", size: int = 64):
 
 
 class TwoViews:
-    """Return (weak(x), strong(x)) for consistency-based semi-supervised methods."""
+    """Return (weak(x), strong(x)) for consistency-based semi-supervised methods.
+
+    Both views are made from the same input tensor but with independent random draws. The dataset
+    returns this tuple directly for unlabelled items (no label is attached).
+    """
 
     def __init__(self, weak, strong):
         self.weak, self.strong = weak, strong
