@@ -145,3 +145,42 @@ def test_cli_needs_groups(tmp_path):
     res = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "make_figures.py"), "--eval-dir",
                           str(tmp_path)], capture_output=True, text=True)
     assert res.returncode != 0 and "run scripts/evaluate.py first" in res.stderr
+
+
+def test_single_seed_cell_shows_zero_spread_and_figure_draws(tmp_path):
+    # Protects the 100% runs, which use one seed: groups.csv then has a NaN std. The table must print
+    # 0.0 for the spread (never "nan") and the label-efficiency figure must still be drawn.
+    g = _groups()
+    one = (g["model"] == "resnet50") & (g["modality"] == "rgb") & (g["fraction"] == 1.0)
+    g.loc[one, ["n_seeds", "test_f1_std", "test_acc_std"]] = [1, np.nan, np.nan]
+    for metric in ("f1", "acc"):
+        cell = tables.supervised_table(g, metric=metric).at["ResNet-50, RGB (3 bands)", "100%"]
+        assert cell.rstrip("*").endswith("± 0.0") and "nan" not in cell.lower()
+    assert figures.label_efficiency(g, tmp_path / "f1.png").stat().st_size > 1000
+    assert figures.label_efficiency(g, tmp_path / "acc.png", metric="acc").stat().st_size > 1000
+
+
+def test_missing_model_or_cell_in_supervised_table(tmp_path):
+    # Protects partial results: a model with no 13-band runs gets no row, and a single missing cell
+    # shows an en dash. Neither may crash the table, and the figure must still be drawn.
+    g = _groups()
+    no_ms = g[~((g["model"] == "vit_small") & (g["modality"] == "ms"))]
+    t = tables.supervised_table(no_ms)
+    assert t.shape == (5, 3) and "ViT-Small, 13 bands" not in t.index and "ViT-Small, RGB (3 bands)" in t.index
+    assert figures.label_efficiency(no_ms, tmp_path / "a.png").exists()
+    no_cell = g[~((g["model"] == "resnet50") & (g["modality"] == "ms") & (g["fraction"] == 0.1))]
+    t = tables.supervised_table(no_cell)
+    assert t.shape == (6, 3) and t.at["ResNet-50, 13 bands", "10%"] == "–"
+    assert t.at["ResNet-50, 13 bands", "1%"] != "–"
+
+
+def test_empty_groups_return_none(tmp_path):
+    # Protects a run with no results yet: with an empty groups table (or no supervised rows) the
+    # figure functions return None and write no file.
+    empty = _groups().iloc[0:0]
+    assert figures.label_efficiency(empty, tmp_path / "a.png") is None
+    assert figures.label_efficiency(empty, tmp_path / "b.png", metric="acc") is None
+    assert figures.per_class_heatmap(_per_class(_groups()).iloc[0:0], 1.0, tmp_path / "c.png") is None
+    pl_only = _groups().assign(variant="pl")  # rows exist, but none are supervised
+    assert figures.label_efficiency(pl_only, tmp_path / "d.png") is None
+    assert not list(tmp_path.iterdir())
