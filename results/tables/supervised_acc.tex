@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\caption{Test accuracy (\%), mean $\pm$ std over 3 seeds.}
+\label{tab:supervised_acc}
+\small
+\begin{tabular}{lccc}
+\toprule
+Setting & 1\% & 10\% & 100\% \\
+\midrule
+Scratch CNN, RGB (3 bands) & 75.6 $\pm$ 0.8 & 91.9 $\pm$ 0.3 & 97.6 (n=1) \\
+Scratch CNN, 13 bands & 78.4 $\pm$ 0.5 & 96.1 $\pm$ 0.3 & 98.8 (n=1) \\
+ResNet-50, RGB (3 bands) & 88.9 $\pm$ 0.1 & 96.5 $\pm$ 0.3 & 98.7 (n=1) \\
+ResNet-50, 13 bands & 89.7 $\pm$ 0.6 & 97.4 $\pm$ 0.4 & \textbf{99.1 (n=1)} \\
+ViT-Small, RGB (3 bands) & 91.1 $\pm$ 0.8 & 97.5 $\pm$ 0.2 & 98.8 (n=1) \\
+ViT-Small, 13 bands & \textbf{91.6 $\pm$ 1.2} & \textbf{97.6 $\pm$ 0.2} & 99.0 (n=1) \\
+\bottomrule
+\end{tabular}
+\end{table}

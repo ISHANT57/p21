@@ -1,0 +1,52 @@
+run_name,model,modality,fraction,seed,variant,val_acc,val_f1,test_acc,test_f1,best_epoch,minutes,source,teacher,tau,val_precision,n_pseudo,n_pool
+resnet50_ms_1pct_seed0_pl,resnet50,ms,0.01,0,pl,0.9225,0.9205,0.9225,0.9205,10,13.8,colab_setup.ipynb,resnet50_ms_1pct_seed0,0.87,0.95,17109.0,18708.0
+resnet50_ms_1pct_seed1_pl,resnet50,ms,0.01,1,pl,0.9232,0.9216,0.923,0.9201,4,13.5,colab_setup.ipynb,resnet50_ms_1pct_seed1,0.94,0.952,16635.0,18708.0
+resnet50_ms_10pct_seed0_pl,resnet50,ms,0.1,0,pl,0.9783,0.9781,0.976,0.9754,9,14.9,colab_setup.ipynb,resnet50_ms_10pct_seed0,0.5,0.979,16964.0,17009.0
+resnet50_ms_10pct_seed1_pl,resnet50,ms,0.1,1,pl,0.9798,0.9793,0.9793,0.9786,9,15.0,colab_setup.ipynb,resnet50_ms_10pct_seed1,0.5,0.982,16980.0,17009.0
+resnet50_rgb_1pct_seed0_pl,resnet50,rgb,0.01,0,pl,0.9195,0.9161,0.9123,0.9095,2,12.4,colab_setup.ipynb,resnet50_rgb_1pct_seed0,0.89,0.95,15935.0,18708.0
+resnet50_rgb_1pct_seed1_pl,resnet50,rgb,0.01,1,pl,0.9131,0.9086,0.9123,0.9086,8,12.8,colab_setup.ipynb,resnet50_rgb_1pct_seed1,0.9,0.951,16382.0,18708.0
+resnet50_rgb_10pct_seed0_pl,resnet50,rgb,0.1,0,pl,0.9689,0.9687,0.9649,0.965,8,14.4,colab_setup.ipynb,resnet50_rgb_10pct_seed0,0.5,0.969,16952.0,17009.0
+resnet50_rgb_10pct_seed1_pl,resnet50,rgb,0.1,1,pl,0.9746,0.9737,0.9696,0.9691,6,14.4,colab_setup.ipynb,resnet50_rgb_10pct_seed1,0.5,0.971,16964.0,17009.0
+scratch_cnn_rgb_1pct_seed0_pl,scratch_cnn,rgb,0.01,0,pl,0.7805,0.7749,0.7726,0.7676,33,8.8,lane_C_scratch_and_vit100.ipynb,scratch_cnn_rgb_1pct_seed0,0.99,0.893,12054.0,18708.0
+resnet50_ms_1pct_seed0,resnet50,ms,0.01,0,supervised,0.9134,0.9115,0.9015,0.8988,29,10.1,colab_setup.ipynb,,,,,
+resnet50_ms_1pct_seed1,resnet50,ms,0.01,1,supervised,0.8988,0.8948,0.8998,0.8961,28,10.0,colab_setup.ipynb,,,,,
+resnet50_ms_1pct_seed2,resnet50,ms,0.01,2,supervised,0.8946,0.8911,0.8904,0.8867,15,8.4,colab_setup.ipynb,,,,,
+resnet50_ms_10pct_seed0,resnet50,ms,0.1,0,supervised,0.9775,0.9768,0.9733,0.9724,18,9.5,colab_setup.ipynb,,,,,
+resnet50_ms_10pct_seed1,resnet50,ms,0.1,1,supervised,0.981,0.9804,0.9783,0.9771,29,10.1,colab_setup.ipynb,,,,,
+resnet50_ms_10pct_seed2,resnet50,ms,0.1,2,supervised,0.9726,0.9718,0.9709,0.9697,13,7.8,colab_setup.ipynb,,,,,
+resnet50_ms_100pct_seed0,resnet50,ms,1.0,0,supervised,0.9928,0.9926,0.9911,0.9905,30,41.7,lane_B_vit_small (1).ipynb,,,,,
+resnet50_rgb_1pct_seed0,resnet50,rgb,0.01,0,supervised,0.8966,0.8916,0.8904,0.8853,7,5.4,colab_setup.ipynb,,,,,
+resnet50_rgb_1pct_seed1,resnet50,rgb,0.01,1,supervised,0.8909,0.8858,0.8894,0.8845,29,9.4,colab_setup.ipynb,,,,,
+resnet50_rgb_1pct_seed2,resnet50,rgb,0.01,2,supervised,0.8961,0.8931,0.8881,0.8845,14,7.5,colab_setup.ipynb,,,,,
+resnet50_rgb_10pct_seed0,resnet50,rgb,0.1,0,supervised,0.9669,0.9668,0.9632,0.9628,28,9.5,colab_setup.ipynb,,,,,
+resnet50_rgb_10pct_seed1,resnet50,rgb,0.1,1,supervised,0.9699,0.9688,0.9684,0.9676,30,9.5,colab_setup.ipynb,,,,,
+resnet50_rgb_10pct_seed2,resnet50,rgb,0.1,2,supervised,0.9659,0.9659,0.962,0.9614,21,9.5,colab_setup.ipynb,,,,,
+resnet50_rgb_100pct_seed0,resnet50,rgb,1.0,0,supervised,0.9889,0.9883,0.9867,0.9863,29,43.1,colab_setup.ipynb,,,,,
+scratch_cnn_ms_1pct_seed0,scratch_cnn,ms,0.01,0,supervised,0.7862,0.784,0.7835,0.7806,34,5.1,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_ms_1pct_seed1,scratch_cnn,ms,0.01,1,supervised,0.782,0.7767,0.7793,0.7741,31,4.8,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_ms_1pct_seed2,scratch_cnn,ms,0.01,2,supervised,0.8062,0.8048,0.7899,0.7875,24,4.1,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_ms_10pct_seed0,scratch_cnn,ms,0.1,0,supervised,0.9637,0.9629,0.9627,0.9614,60,6.4,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_ms_10pct_seed1,scratch_cnn,ms,0.1,1,supervised,0.9603,0.9594,0.962,0.9602,57,6.3,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_ms_10pct_seed2,scratch_cnn,ms,0.1,2,supervised,0.9677,0.9666,0.958,0.9566,52,6.3,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_ms_100pct_seed0,scratch_cnn,ms,1.0,0,supervised,0.9899,0.9894,0.9881,0.9875,54,27.6,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_rgb_1pct_seed0,scratch_cnn,rgb,0.01,0,supervised,0.7694,0.7627,0.7548,0.7492,57,3.5,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_rgb_1pct_seed1,scratch_cnn,rgb,0.01,1,supervised,0.7435,0.7306,0.7477,0.7342,55,3.6,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_rgb_1pct_seed2,scratch_cnn,rgb,0.01,2,supervised,0.7598,0.7478,0.7642,0.7535,58,3.6,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_rgb_10pct_seed0,scratch_cnn,rgb,0.1,0,supervised,0.9331,0.9313,0.9225,0.9207,48,3.5,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_rgb_10pct_seed1,scratch_cnn,rgb,0.1,1,supervised,0.9299,0.9285,0.916,0.9147,51,3.6,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_rgb_10pct_seed2,scratch_cnn,rgb,0.1,2,supervised,0.9252,0.9247,0.919,0.9176,57,3.6,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_rgb_100pct_seed0,scratch_cnn,rgb,1.0,0,supervised,0.98,0.9797,0.9756,0.9751,60,16.2,lane_C_scratch_and_vit100.ipynb,,,,,
+vit_small_ms_1pct_seed0,vit_small,ms,0.01,0,supervised,0.9245,0.9215,0.9277,0.9251,18,6.7,lane_B_vit_small (1).ipynb,,,,,
+vit_small_ms_1pct_seed1,vit_small,ms,0.01,1,supervised,0.9062,0.9017,0.903,0.8983,3,3.1,lane_B_vit_small (1).ipynb,,,,,
+vit_small_ms_1pct_seed2,vit_small,ms,0.01,2,supervised,0.9205,0.9172,0.916,0.9118,13,5.5,lane_B_vit_small (1).ipynb,,,,,
+vit_small_ms_10pct_seed0,vit_small,ms,0.1,0,supervised,0.9788,0.978,0.978,0.9773,19,6.9,lane_B_vit_small (1).ipynb,,,,,
+vit_small_ms_10pct_seed1,vit_small,ms,0.1,1,supervised,0.9793,0.9788,0.977,0.9762,16,6.2,lane_B_vit_small (1).ipynb,,,,,
+vit_small_ms_10pct_seed2,vit_small,ms,0.1,2,supervised,0.9785,0.978,0.9743,0.9733,27,7.2,lane_B_vit_small (1).ipynb,,,,,
+vit_small_ms_100pct_seed0,vit_small,ms,1.0,0,supervised,0.9933,0.9931,0.9896,0.9891,28,34.0,lane_C_scratch_and_vit100.ipynb,,,,,
+vit_small_rgb_1pct_seed0,vit_small,rgb,0.01,0,supervised,0.9163,0.9138,0.9128,0.91,26,6.6,lane_B_vit_small (1).ipynb,,,,,
+vit_small_rgb_1pct_seed1,vit_small,rgb,0.01,1,supervised,0.9059,0.8981,0.9022,0.8948,25,6.7,lane_B_vit_small (1).ipynb,,,,,
+vit_small_rgb_1pct_seed2,vit_small,rgb,0.01,2,supervised,0.9106,0.9074,0.9185,0.9149,17,6.0,lane_B_vit_small (1).ipynb,,,,,
+vit_small_rgb_10pct_seed0,vit_small,rgb,0.1,0,supervised,0.9773,0.9765,0.9775,0.977,19,6.5,lane_B_vit_small (1).ipynb,,,,,
+vit_small_rgb_10pct_seed1,vit_small,rgb,0.1,1,supervised,0.9793,0.9789,0.9748,0.9741,25,6.7,lane_B_vit_small (1).ipynb,,,,,
+vit_small_rgb_10pct_seed2,vit_small,rgb,0.1,2,supervised,0.9753,0.9748,0.9728,0.9721,19,6.5,lane_B_vit_small (1).ipynb,,,,,
+vit_small_rgb_100pct_seed0,vit_small,rgb,1.0,0,supervised,0.9916,0.9913,0.9879,0.9876,21,32.3,lane_C_scratch_and_vit100.ipynb,,,,,
