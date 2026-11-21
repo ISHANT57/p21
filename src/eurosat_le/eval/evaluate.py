@@ -70,10 +70,35 @@ def load_preds(run_dir: Path, split: str = "test") -> tuple[np.ndarray, np.ndarr
     """Load preds_<split>.npz and return (logits [N, K] float32, labels [N], ids [N] as str).
 
     All three arrays are reordered by sorted string id so that different runs line up row by row.
+
+    Caching: one evaluation reads the same file several times (per-run metrics, confusion matrix, and
+    every paired comparison that involves the run), so the sorted arrays are kept in memory after the
+    first read. The cache key includes the file's modification time and size, so a file that is
+    rewritten (for example a re-run in a notebook session) is read again. The returned arrays are shared
+    between callers and therefore read-only; copy them before modifying. `load_preds.cache_clear()`
+    empties the cache. Memory: about N * K * 4 bytes per split and run (160 KB for the test set).
     """
-    d = np.load(run_dir / f"preds_{split}.npz")
-    order = np.argsort(d["ids"].astype(str))  # align runs by id, independent of loader order
-    return d["logits"].astype(np.float32)[order], d["labels"][order], d["ids"].astype(str)[order]
+    path = Path(run_dir) / f"preds_{split}.npz"
+    st = path.stat()
+    # Cache key: the absolute path, plus mtime and size. If the file is rewritten, the key changes and
+    # the new contents are read instead of stale cached arrays.
+    key = (str(path.resolve()), st.st_mtime_ns, st.st_size)
+    if key not in _PREDS_CACHE:  # first request for this file: read it from disk
+        d = np.load(path)
+        order = np.argsort(d["ids"].astype(str))  # align runs by id, independent of loader order
+        arrays = (d["logits"].astype(np.float32)[order], d["labels"][order], d["ids"].astype(str)[order])
+        # Every caller gets the same array objects, so make them read-only: an in-place change by one
+        # caller would otherwise silently change the results of every later caller.
+        for a in arrays:
+            a.setflags(write=False)
+        _PREDS_CACHE[key] = arrays
+    return _PREDS_CACHE[key]
+
+
+# (path, mtime_ns, size) -> (logits, labels, ids), filled by load_preds. A plain dict instead of
+# functools.lru_cache, because the key needs the file's stat and not only the function arguments.
+_PREDS_CACHE: dict[tuple[str, int, int], tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+load_preds.cache_clear = _PREDS_CACHE.clear  # same name as lru_cache's method, for tests and notebooks
 
 
 def expected_calibration_error(probs: np.ndarray, labels: np.ndarray, n_bins: int = 15) -> float:
