@@ -66,6 +66,18 @@ def group_name(row) -> str:
     return f"{row['model']}_{row['modality']}_{row['fraction'] * 100:g}pct_{row['variant']}"
 
 
+def count_pairs(runs: pd.DataFrame, factor: str, a, b) -> int:
+    """Number of run pairs `compare` will match for one comparison, without loading any predictions.
+
+    Uses the same rule as `eurosat_le.eval.evaluate.compare`: every GROUP key except `factor`, plus the
+    seed, must agree.
+    """
+    keys = [k for k in GROUP if k != factor] + ["seed"]
+    A = runs[runs[factor] == a].set_index(keys).index
+    B = runs[runs[factor] == b].set_index(keys).index
+    return len(A.intersection(B))
+
+
 def main() -> None:
     """Run the whole Phase 6 evaluation: per-run metrics, group tables, confusions, paired comparisons."""
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -80,6 +92,9 @@ def main() -> None:
         raise SystemExit(f"no finished runs with test predictions in {args.runs_dir}")
     out = args.out
     (out / "confusion").mkdir(parents=True, exist_ok=True)
+    n_pairs = {stem: count_pairs(runs, factor, a, b) for stem, factor, a, b in COMPARISONS}
+    print(f"{len(runs)} runs found; {sum(n_pairs.values())} comparison pairs in "
+          f"{sum(n > 0 for n in n_pairs.values())} comparison files, {args.n_boot} bootstrap resamples each")
 
     # ---- per run ------------------------------------------------------------------------------
     rows, class_rows, issues = [], [], []
