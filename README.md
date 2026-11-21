@@ -63,7 +63,7 @@ The split is fixed: 70/15/15, stratified, seed 42. Validation and test are the s
 │   └── runs/                # per-run outputs (git-ignored)
 ├── report/                  # IEEE LaTeX report skeleton
 ├── tests/                   # pytest unit tests (no dataset needed)
-├── docs/                    # DATA.md (data + splits), MODELS.md (models + training), SSL.md (pseudo-labelling), EVALUATION.md
+├── docs/                    # DATA.md (data + splits), MODELS.md (models + training), SSL.md (pseudo-labelling), EVALUATION.md, FIGURES.md (every report figure and table: source CSV, columns, colour rules)
 ├── phases.md                # phase plan + task checklists
 ├── status.md                # progress, findings, open decisions
 ├── requirements.txt         # minimum versions (Colab/Kaggle friendly)
