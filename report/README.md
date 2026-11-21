@@ -2,10 +2,14 @@
 
 Two versions of the same report:
 
-- `main.tex` is the single-column report in the style of a NeurIPS paper (title between two rules, numbered
-  sections, "Figure 1:" and "Table 1:" captions, numbered references). It is the version to submit. To stay
-  near 12 pages it leaves out a few tables and one figure that the full version has.
-- `main_ieee.tex` is the full two-column IEEE version (every table and figure).
+- `main.tex` is the single-column report in the layout of the ELCVIA journal template (A4, 11 pt Times, 17 x 25 cm
+  text area, 2 cm left margin, bold title / section / subsection sizes of 16 / 14 / 12 pt, running head, numbered
+  references). The layout is rebuilt with standard packages, because the journal's `elcvia.cls` is not in this
+  repository; to use the journal's own class, put `elcvia.cls` and `elcvia.sty` next to `main.tex` and change the
+  preamble as the template shows. To stay near the recommended 8 to 12 pages, this version leaves out a few tables
+  and the two long appendices (all runs, design decisions); they are in `results/tables/all_runs.md` and
+  `docs/DESIGN_DECISIONS.md`.
+- `main_ieee.tex` is the full two-column IEEE version (every table and figure, with the appendices).
 
 Both read the figures and tables from `../results/figures` and `../results/tables`, so build those first:
 

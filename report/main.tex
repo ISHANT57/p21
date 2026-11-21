@@ -1,8 +1,9 @@
-% Single-column report in the style of a NeurIPS paper (title between two rules, numbered sections,
-% numbered figure and table captions, numbered references). The full two-column IEEE version is main_ieee.tex.
-% Build: latexmk -pdf main.tex   (pdfLaTeX; needs titlesec, microtype, booktabs, which Overleaf has)
-\documentclass[10pt]{article}
-\usepackage[letterpaper,margin=1in]{geometry}
+% Report in the layout of the ELCVIA journal template (ELCVIA_Template.pdf): A4, 11 pt Times, 17 x 25 cm text area,
+% 2 cm left margin, bold title / section / subsection sizes of 16 / 14 / 12 pt, running head, numbered references.
+% The full two-column IEEE version is main_ieee.tex.
+% Build: latexmk -pdf main.tex   (pdfLaTeX; needs fancyhdr, titlesec, microtype, booktabs, which Overleaf has)
+\documentclass[twoside,a4paper,11pt]{article}
+\usepackage[a4paper,twoside,asymmetric,left=2cm,right=1cm,top=2.2cm,bottom=2.5cm,headheight=14pt,headsep=12pt]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage{mathptmx}
 \usepackage{microtype}
@@ -12,54 +13,68 @@
 \usepackage{amssymb}
 \usepackage{array}
 \usepackage{xcolor}
+\usepackage{fancyhdr}
 \usepackage[explicit]{titlesec}
 \usepackage[hidelinks]{hyperref}
 \newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
 \newcommand{\figdir}{../results/figures}
 \newcommand{\tabdir}{../results/tables}
 
-% Paragraph and heading layout: no indent, a little space between paragraphs, bold numbered headings.
-\setlength{\parindent}{0pt}
-\setlength{\parskip}{5.5pt plus 1pt}
-\titleformat{\section}{\large\bfseries}{\thesection}{0.9em}{#1}
-\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.9em}{#1}
-\titlespacing*{\section}{0pt}{13pt plus 3pt minus 2pt}{6pt plus 1pt}
-\titlespacing*{\subsection}{0pt}{9pt plus 2pt minus 2pt}{4pt plus 1pt}
+% Running head: page 1 carries the journal name only; later pages carry "author et al. / journal" with the page
+% number on the outer edge (left on even pages, right on odd pages), as in the template.
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[CE,CO]{\small\itshape Bhoyar et al. / Electronic Letters on Computer Vision and Image Analysis}
+\fancyhead[LE,RO]{\small\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\fancypagestyle{plain}{\fancyhf{}\fancyhead[C]{\small\itshape Electronic Letters on Computer Vision and Image Analysis}%
+  \renewcommand{\headrulewidth}{0pt}}
+
+% Headings: section 14 pt bold, subsection 12 pt bold, subsubsection 11 pt bold (all numbered).
+\titleformat{\section}{\fontsize{14}{17}\selectfont\bfseries}{\thesection}{1em}{#1}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{#1}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection}{1em}{#1}
+\titlespacing*{\section}{0pt}{16pt plus 3pt minus 2pt}{7pt plus 1pt}
+\titlespacing*{\subsection}{0pt}{11pt plus 2pt minus 2pt}{5pt plus 1pt}
+\titlespacing*{\subsubsection}{0pt}{9pt plus 2pt minus 2pt}{4pt plus 1pt}
+\setlength{\parindent}{1.5em}
+\setlength{\parskip}{0pt plus 1pt}
+\raggedbottom
 % Let floats sit at the top of a page more freely, so that figures and tables do not leave big gaps.
 \setcounter{topnumber}{3}
 \renewcommand{\topfraction}{0.9}
 \renewcommand{\textfraction}{0.1}
 \renewcommand{\floatpagefraction}{0.8}
-\setlength{\textfloatsep}{14pt plus 2pt minus 2pt}
 
 \begin{document}
+\thispagestyle{plain}
 
-% Title between a thick and a thin rule, then the authors, then the abstract (as in the example paper).
-\noindent\rule{\textwidth}{4pt}\par\vspace{10pt}
+% Title block: title 16 pt bold, authors with a star, affiliation in italics, a rule, the abstract (10 pt), key words, a rule.
 \begin{center}
-{\LARGE\bfseries Label-Efficient Land-Use Classification on EuroSAT:\\[3pt]
+{\fontsize{16}{19}\selectfont\bfseries Label-Efficient Land-Use Classification on EuroSAT:\\
 RGB versus 13-Band Input, Supervised versus Pseudo-Labelled Training\par}
-\end{center}
-\vspace{4pt}\noindent\rule{\textwidth}{1pt}\par\vspace{16pt}
-
-\begin{center}
-\small
-\begin{tabular}[t]{@{}c@{\hspace{22pt}}c@{\hspace{22pt}}c@{\hspace{22pt}}c@{}}
-\textbf{Ishant Bhoyar} & \textbf{Gaurav Kumar} & \textbf{Jagriti Pandey} & \textbf{Ayush Kumar} \\
-Enrolment no. & Enrolment no. & Enrolment no. & Enrolment no. \\
-202410101200059 & 202410101200047 & 202410101200060 & 202410101200028 \\
-\multicolumn{4}{c}{Deep Learning, Sitare University} \\
-\end{tabular}
-\end{center}
 \vspace{14pt}
+{\large Ishant Bhoyar$^{*}$, Gaurav Kumar$^{*}$, Jagriti Pandey$^{*}$ and Ayush Kumar$^{*}$\par}
+\vspace{9pt}
+{\small\itshape $^{*}$ Deep Learning, Sitare University (enrolment nos.\ 202410101200059, 202410101200047,
+202410101200060 and 202410101200028)\par}
+\end{center}
+\vspace{8pt}
+\noindent\rule{\textwidth}{0.4pt}
+\vspace{4pt}
 
 \begin{center}
-{\large\bfseries Abstract}
+{\small\bfseries Abstract}
 \end{center}
-\begin{quote}
-We ask how much test accuracy a land-use classifier loses when only 1\% or 10\% of the EuroSAT training labels are used, whether the extra Sentinel-2 bands help, and whether pseudo-labelling recovers some of the loss. We train a small CNN from scratch, an ImageNet-pretrained ResNet-50, and an ImageNet-pretrained ViT-Small on RGB and on all 13 bands, at 1\%, 10\% and 100\% of the labels (three seeds at 1\% and 10\%, one at 100\%). With 1\% of the labels (191 images), the pretrained models reach 88.5--91.2\% test macro-F1 and the scratch CNN 74.6--78.1\%; with all labels every model reaches 97.5--99.1\%. The 13-band input helps the scratch CNN most (+3.5 to +4.2 points at 1\% and 10\%), ResNet-50 by about +0.9 points, and ViT-Small by 0.5 points or less, which at 1\% is within the spread between seeds. Pseudo-labelling a ResNet-50 improves it by 2.3 to 2.4 points at 1\% of the labels and by 0.2 points at 10\%. Pseudo-labelling results rest on two seeds, and the 100\% results on one.
-\end{quote}
-\vspace{4pt}
+{\small
+\begin{list}{}{\setlength{\leftmargin}{1cm}\setlength{\rightmargin}{1cm}\setlength{\topsep}{2pt}\setlength{\parsep}{0pt}}
+\item[] We ask how much test accuracy a land-use classifier loses when only 1\% or 10\% of the EuroSAT training labels are used, whether the extra Sentinel-2 bands help, and whether pseudo-labelling recovers some of the loss. We train a small CNN from scratch, an ImageNet-pretrained ResNet-50, and an ImageNet-pretrained ViT-Small on RGB and on all 13 bands, at 1\%, 10\% and 100\% of the labels (three seeds at 1\% and 10\%, one at 100\%). With 1\% of the labels (191 images), the pretrained models reach 88.5--91.2\% test macro-F1 and the scratch CNN 74.6--78.1\%; with all labels every model reaches 97.5--99.1\%. The 13-band input helps the scratch CNN most (+3.5 to +4.2 points at 1\% and 10\%), ResNet-50 by about +0.9 points, and ViT-Small by 0.5 points or less, which at 1\% is within the spread between seeds. Pseudo-labelling a ResNet-50 improves it by 2.3 to 2.4 points at 1\% of the labels and by 0.2 points at 10\%. Pseudo-labelling results rest on two seeds, and the 100\% results on one.
+\end{list}
+\vspace{6pt}
+\noindent\hspace{1cm}\textit{Key Words}: EuroSAT, Sentinel-2, label efficiency, multispectral, pseudo-labelling, transfer learning.
+}
+\vspace{8pt}
+\noindent\rule{\textwidth}{0.4pt}
 
 \section{Introduction}
 Land-use and land-cover maps built from satellite images need labelled examples, and labels are expensive: an expert has to inspect each patch. Sentinel-2 satellites, however, record far more than the red, green and blue (RGB) bands of an ordinary photograph. They measure 13 spectral bands, including near-infrared and short-wave infrared, which separate vegetation, water and built-up areas better than visible light does~\cite{drusch2012sentinel}. Two ideas could therefore reduce the labelling effort: using the extra spectral bands, and using the many unlabelled images that are available anyway.
@@ -71,8 +86,6 @@ We study these ideas on the EuroSAT benchmark~\cite{helber2019eurosat} and ask t
 \item \textbf{Unlabelled data.} Does pseudo-labelling, which adds confident predictions on unlabelled training images as extra training labels, improve a supervised model trained on the same few labels?
 \end{enumerate}
 Every comparison uses the same fixed split, the same training budget rule and three random label subsets. Our contributions are: (i) a reproducible protocol with nested label subsets, leakage checks and a train-only normalisation; (ii) a way to start a pretrained RGB network from its ImageNet weights when 13 bands are given; (iii) a pseudo-labelling procedure whose confidence threshold is chosen on the validation set only; and (iv) paired comparisons matched on the seed, so that two settings are always compared on the same labelled subset.
-
-The rest of the report is organised as follows. Section~\ref{sec:related} places the work in the literature. Section~\ref{sec:data} describes the data and the splits, Section~\ref{sec:method} the models, the training procedure and the pseudo-labelling method, and Section~\ref{sec:setup} the experimental setup, including what was cut to fit the time limit and where the numbers come from. Section~\ref{sec:results} reports the results, Section~\ref{sec:discussion} answers the three questions and gives practical recommendations, and Sections~\ref{sec:limits} and~\ref{sec:future} list the limitations and future work. The appendices list every run, the design decisions and the steps to reproduce the results.
 
 \section{Related Work}\label{sec:related}
 \textbf{Data and benchmarks.} Sentinel-2 is a constellation of optical satellites that image the land surface in 13 spectral bands at 10, 20 and 60~m resolution~\cite{drusch2012sentinel}. EuroSAT~\cite{helber2019eurosat} provides 27{,}000 labelled Sentinel-2 patches in 10 classes, in RGB and in all 13 bands. The original paper trained convolutional networks on it and reported an overall accuracy of about 98.6\% for ResNet-50 on RGB with a large labelled training set; we use this as a sanity check for our own baseline. BigEarthNet~\cite{sumbul2019bigearthnet} is a much larger Sentinel-2 archive with multiple labels per patch. Reviews of deep learning in remote sensing~\cite{zhu2017review} list label scarcity as a main obstacle.
@@ -278,45 +291,16 @@ Five extensions follow from the limitations. (i)~Start from a model pretrained o
 \section{Conclusion}
 On EuroSAT, a pretrained model keeps 88.5--91.2\% macro-F1 with 1\% of the labels, where a scratch CNN reaches 74.6--78.1\%, so pretraining matters more than the amount of labelled data. The 13-band input adds 3.5--4.2 points for the scratch CNN but under one point for the pretrained models. Pseudo-labelling adds about 2.3 points for ResNet-50 at 1\% of the labels and little at 10\%. Because of the time limit, the 100\% results have one seed, pseudo-labelling has two seeds, and most comparisons have no bootstrap intervals, so we state the direction of effects and not exact sizes.
 
-\bibliographystyle{plain}
-\bibliography{references}
-
-\appendix
-\section{All Runs}\label{app:runs}
-Table~\ref{tab:all_runs} lists every finished run. Scores are those printed at the end of each run; the validation F1 belongs to the weights selected by early stopping. The minutes are the training time on a Tesla T4, including the final prediction passes.
-
-\input{\tabdir/all_runs.tex}
-
-\section{Design Decisions}\label{app:design}
-Table~\ref{tab:design} lists the main choices, why each was made, and the weakness we know of.
-
-\begin{table}[t]
-\centering
-\caption{Main design decisions, with the reason and the known weakness.}
-\label{tab:design}
-\footnotesize
-\begin{tabular}{r p{4.0cm} p{5.2cm} p{5.6cm}}
-\toprule
-\# & Decision & Reason & Known weakness \\
-\midrule
-1 & One fixed random, class-stratified 70/15/15 split (seed 42) & Matches the original EuroSAT protocol; every run shares the same validation and test sets & Neighbouring patches look alike, so scores can be optimistic for new regions \\
-2 & Nested labelled subsets (1\% in 10\% in 100\%) with 3 seeds & Adding labels never removes images already in use, so curves are easier to compare & Only 3 seeds, so uncertainty is large at 1\% \\
-3 & Normalisation statistics from the training split only & Nothing from validation or test leaks into preprocessing & The statistics include images that count as unlabelled at 1\% and 10\% (no labels are used) \\
-4 & Best weights by validation macro-F1 with early stopping; test set predicted once & The test set never influences any choice & Validation scores wobble at 1\% labels, so the selected epoch is noisy \\
-5 & Equal-budget rule: $\max(\text{epochs}\times\text{one pass},\text{min steps})$ & Small label sets get enough steps to converge, with the same number of validation checks for every fraction & The 1\% and 10\% runs get more passes over the data than the 100\% runs \\
-6 & 13-band first layer built from pretrained RGB filters (mean filter for other bands, scaled by 3/13) & Allows ImageNet weights with 13 bands and keeps the first-layer output size & ImageNet knows nothing about infrared; the RGB filters are weakened by the scaling \\
-7 & Macro-F1 as the main metric (accuracy also reported) & Classes are mildly imbalanced and each class should count equally & Macro-F1 on 1\% runs is noisy \\
-8 & Pseudo-label threshold $\tau$ chosen on validation (smallest $\tau$ with at least 95\% precision) & No test data is used, and as many pseudo-labels as possible are kept at a known quality & The teacher's weights were also selected on validation, so its precision can be slightly optimistic \\
-9 & Students start from fresh pretrained or random weights, not from the teacher & The comparison with the teacher stays like for like & Students train on more images and steps; they run 10 epochs to limit extra compute \\
-10 & Paired comparisons matched on seed; 95\% bootstrap interval over test images & Removes variation due to different labelled subsets & With 3 seeds, we report how many seeds agree and not p-values \\
-11 & Time cuts: 100\% cells use one seed; no ViT-Small sweep; pseudo-labelling only at 1\% and 10\% & Needed to finish by the deadline & No standard deviation at 100\%; ViT-Small may be under-tuned \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\section{Reproducibility}\label{app:repro}
-The code, the logs of every run and all figures and tables are in the public repository \url{https://github.com/ISHANT57/p21}; the results in this report are the tag \texttt{results-v1}. The code is released under the MIT licence, and automated tests run on every change. The steps are scripts in the \texttt{scripts} folder: \texttt{download\_data.py}, \texttt{make\_splits.py}, \texttt{build\_cache.py}, \texttt{run\_grid.py}, \texttt{evaluate.py} (or \texttt{parse\_colab\_logs.py} and \texttt{eval\_from\_logs.py} when only the run logs exist), \texttt{make\_figures.py} and \texttt{make\_report\_tables.py}.
+\section{Reproducibility}\label{sec:repro}
+The code, the logs of every run and all figures and tables are in the public repository \url{https://github.com/ISHANT57/p21}; the results in this report are the tag \texttt{results-v1}. The code is released under the MIT licence, and automated tests run on every change. The steps are scripts in the \texttt{scripts} folder: \texttt{download\_data.py}, \texttt{make\_splits.py}, \texttt{build\_cache.py}, \texttt{run\_grid.py}, \texttt{evaluate.py} (or \texttt{parse\_colab\_logs.py} and \texttt{eval\_from\_logs.py} when only the run logs exist), \texttt{make\_figures.py} and \texttt{make\_report\_tables.py}. A table of all 51 runs is in \texttt{results/tables/all\_runs.md} and the design decisions with their known weaknesses are in \texttt{docs/DESIGN\_DECISIONS.md}.
 
 Every run stores its configuration, the library versions, the GPU, the git commit and its predictions next to its metrics, so a number in this report can be traced to a run. The fixed seeds control the labelled subsets, the initialisation, the shuffling and the augmentation. The split files carry hashes, and training stops if a file has changed, so no result can silently come from another split.
+
+
+{\small
+\bibliographystyle{plain}
+\bibliography{references}
+}
+
 
 \end{document}
