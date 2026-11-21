@@ -4,6 +4,7 @@ Usage:
     python scripts/evaluate.py                                  # results/runs -> results/summary/eval
     python scripts/evaluate.py --runs-dir /content/drive/MyDrive/p21_runs
     python scripts/evaluate.py --examples resnet50_rgb_1pct_seed0 vit_small_ms_1pct_seed0
+    python scripts/evaluate.py --quiet                          # no progress or timing messages
 
 Writes to results/summary/eval/:
     per_run.csv            val/test accuracy, macro-F1, ECE for every run (recomputed)
@@ -30,6 +31,10 @@ Design decisions:
   every run are aligned by sorted sample id. The interval is a 95 percent paired bootstrap over test images
   (--n-boot resamples, default 1000). Results over seeds are reported as counts of seeds, not p-values.
 - A comparison with no matching pairs (for example the runs do not exist yet) is silently skipped.
+- Progress messages: before the slow part the script prints how many runs and comparison pairs it will
+  process, then one line per comparison file ("compare_rgb_vs_ms: 27 pairs, 12.3 s"), and the total time
+  next to the final "wrote ..." line. --quiet turns these messages off; tables and warnings still print.
+  The messages never change the CSV or PNG outputs.
 """
 
 import argparse
@@ -86,8 +91,12 @@ def main() -> None:
     p.add_argument("--out", type=Path, default=RESULTS_DIR / "summary" / "eval")
     p.add_argument("--n-boot", type=int, default=1000)
     p.add_argument("--examples", nargs="*", default=[], metavar="RUN", help="plot misclassified test images")
+    p.add_argument("--quiet", action="store_true",
+                   help="no progress/timing messages (results and warnings are still printed)")
     args = p.parse_args()
     t_start = time.perf_counter()  # wall time of the whole evaluation, reported with the final "wrote" line
+    # Progress and timing messages go through `progress`, so --quiet silences them and nothing else.
+    progress = (lambda *_: None) if args.quiet else print
 
     runs = load_runs(args.runs_dir)
     if runs.empty:
@@ -96,8 +105,8 @@ def main() -> None:
     (out / "confusion").mkdir(parents=True, exist_ok=True)
     n_pairs = {stem: count_pairs(runs, factor, a, b) for stem, factor, a, b in COMPARISONS}
     # Announce the amount of work before the slow part, so a long run does not look frozen.
-    print(f"{len(runs)} runs found; {sum(n_pairs.values())} comparison pairs in "
-          f"{sum(n > 0 for n in n_pairs.values())} comparison files, {args.n_boot} bootstrap resamples each")
+    progress(f"{len(runs)} runs found; {sum(n_pairs.values())} comparison pairs in "
+             f"{sum(n > 0 for n in n_pairs.values())} comparison files, {args.n_boot} bootstrap resamples each")
 
     # ---- per run ------------------------------------------------------------------------------
     rows, class_rows, issues = [], [], []
@@ -150,15 +159,16 @@ def main() -> None:
         pairs.to_csv(out / f"compare_{stem}_pairs.csv", index=False)
         summ = summarise_comparison(pairs)
         summ.to_csv(out / f"compare_{stem}.csv", index=False)
-        print(f"\ncompare_{stem}: {len(pairs)} pairs, {time.perf_counter() - t0:.1f} s")
-        print(f"{stem}: macro-F1({b}) - macro-F1({a}), paired by seed")
+        # The timing line takes the blank separator line; with --quiet the table header keeps it instead.
+        progress(f"\ncompare_{stem}: {len(pairs)} pairs, {time.perf_counter() - t0:.1f} s")
+        print(("\n" if args.quiet else "") + f"{stem}: macro-F1({b}) - macro-F1({a}), paired by seed")
         cols = [c for c in GROUP if c != factor and c in summ.columns]  # the compared factor is a/b, not a key
         print(summ[cols + ["n_seeds", "delta_f1_mean", "delta_f1_std", "seeds_b_better", "seeds_ci_excludes_0"]]
               .to_string(index=False, float_format="%.4f"))
 
     for name in args.examples:
         plot_errors(args.runs_dir / name, out / f"errors_{name}.png")
-    print(f"\nwrote {out} ({time.perf_counter() - t_start:.1f} s total)")
+    print(f"\nwrote {out}" + ("" if args.quiet else f" ({time.perf_counter() - t_start:.1f} s total)"))
 
 
 def plot_errors(run_dir: Path, path: Path, n: int = 24, seed: int = 0) -> None:
