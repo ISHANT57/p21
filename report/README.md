@@ -1,5 +1,7 @@
 # Report
 
+`team21report.pdf` is the compiled report (12 pages, compiled on Overleaf from `main.tex`).
+
 Two versions of the same report:
 
 - `main.tex` is the single-column report in the layout of the ELCVIA journal template (A4, 11 pt Times, 17 x 25 cm
