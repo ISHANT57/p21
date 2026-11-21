@@ -36,3 +36,7 @@ With only 3 seeds, the report states, for example, "13-band better in 3/3 seeds,
 ## Outputs (`results/summary/eval/`)
 
 `per_run.csv`, `groups.csv` (the main table), `per_class.csv`, `confusion/<model>_<input>_<pct>pct_<variant>.csv`, `top_confusions.csv`, `compare_*.csv` (summary over seeds) and `compare_*_pairs.csv` (per seed). With `--examples <run> ...`, it also writes `errors_<run>.png`, a grid of misclassified test images shown in RGB (also for 13-band runs), labelled true → predicted (confidence).
+
+## Progress messages
+
+The script prints how many runs and comparison pairs it will process before the slow part (the paired bootstrap), then one line per comparison file with its pair count and time (for example `compare_rgb_vs_ms: 27 pairs, 12.3 s`), and the total time next to the final `wrote ...` line. Pass `--quiet` to turn these messages off; the result tables and any metric warnings are still printed. The messages do not change any output file.
