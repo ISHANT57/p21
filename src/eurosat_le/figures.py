@@ -264,7 +264,9 @@ def confusion_grid(mats: dict[str, np.ndarray], path: Path, title: str) -> Path 
         im = ax.imshow(cm, cmap=viz.SEQUENTIAL, vmin=0, vmax=1)
         ax.grid(False)
         ax.set_xticks(range(len(CLASSES)), CLASSES, rotation=60, ha="right", fontsize=6.5)
-        ax.set_yticks(range(len(CLASSES)), CLASSES, fontsize=6.5)
+        # The class names are written once, on the first panel; on the others they would overlap the
+        # numbers of the panel to their left.
+        ax.set_yticks(range(len(CLASSES)), CLASSES if ax is axes[0][0] else [], fontsize=6.5)
         ax.set_xlabel("predicted")
         ax.set_title(name, fontsize=9)
         for i in range(len(CLASSES)):
@@ -297,12 +299,19 @@ def per_class_heatmap(per_class: pd.DataFrame, fraction: float, path: Path) -> P
     if d.empty:
         return None
     viz.apply_style()
-    d = d.assign(col=lambda x: x["model"].map(MODEL_LABEL) + "\n" + x["modality"].map({"rgb": "RGB", "ms": "13-band"}))
-    order = [f"{MODEL_LABEL[m]}\n{mo}" for m in _models_present(d) for mo in ("RGB", "13-band")]
+    models = _models_present(d)
+    # With one model its name goes into the title and the columns say only the input. With several
+    # models each column says both (two lines).
+    multi = len(models) > 1
+    d = d.assign(col=lambda x: (x["model"].map(MODEL_LABEL) + "\n" if multi else "")
+                 + x["modality"].map({"rgb": "RGB", "ms": "13-band"}))
+    order = [f"{MODEL_LABEL[m]}\n{mo}" if multi else mo for m in models for mo in ("RGB", "13-band")]
     piv = d.pivot_table(index="class", columns="col", values="f1_mean").reindex(CLASSES)
     piv = piv[[c for c in order if c in piv.columns]]
-    fig, ax = plt.subplots(figsize=(0.95 * piv.shape[1] + 2.2, 4.0))
-    im = ax.imshow(piv.to_numpy(), cmap=viz.SEQUENTIAL, vmin=max(0.0, np.nanmin(piv.to_numpy()) - 0.05), vmax=1)
+    fig, ax = plt.subplots(figsize=(1.3 * piv.shape[1] + 2.4, 4.0))
+    # aspect="auto" lets the cells be wider than tall, so neighbouring column labels do not touch.
+    im = ax.imshow(piv.to_numpy(), cmap=viz.SEQUENTIAL, vmin=max(0.0, np.nanmin(piv.to_numpy()) - 0.05), vmax=1,
+                   aspect="auto")
     ax.grid(False)
     ax.set_xticks(range(piv.shape[1]), piv.columns, fontsize=7)
     ax.set_yticks(range(len(CLASSES)), CLASSES, fontsize=7.5)
@@ -313,6 +322,7 @@ def per_class_heatmap(per_class: pd.DataFrame, fraction: float, path: Path) -> P
             if not np.isnan(v):
                 ax.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=7,
                         color="white" if v > lo else viz.TEXT_PRIMARY)
-    ax.set_title(f"Per-class test F1, {FRACTION_LABEL.get(round(fraction, 4), f'{fraction:.0%}')} labels")
+    who = "" if multi else f"{MODEL_LABEL[models[0]]}, "
+    ax.set_title(f"Per-class test F1, {who}{FRACTION_LABEL.get(round(fraction, 4), f'{fraction:.0%}')} labels")
     fig.colorbar(im, ax=ax, shrink=0.8, label="F1 (mean of 3 seeds)")
     return _save(fig, path)

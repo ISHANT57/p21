@@ -110,10 +110,10 @@ def main() -> None:
     outputs += [
         ("supervised F1", has_supervised,
          lambda: table(tab.supervised_table(groups), "supervised_f1",
-                       "Test macro-F1 (\\%), mean $\\pm$ std over 3 seeds.")),
+                       "Test macro-F1 (\\%), mean $\\pm$ std over 3 seeds; (n=1) is a single seed.")),
         ("supervised accuracy", has_supervised,
          lambda: table(tab.supervised_table(groups, metric="acc"), "supervised_acc",
-                       "Test accuracy (\\%), mean $\\pm$ std over 3 seeds.")),
+                       "Test accuracy (\\%), mean $\\pm$ std over 3 seeds; (n=1) is a single seed.")),
         ("semi-supervised table", True,
          lambda: table(tab.semi_supervised_table(groups, compare), "semi_supervised",
                        "Pseudo-labelling against the supervised teacher, matched on seed.", wide=True)),
