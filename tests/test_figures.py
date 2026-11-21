@@ -172,3 +172,15 @@ def test_missing_model_or_cell_in_supervised_table(tmp_path):
     t = tables.supervised_table(no_cell)
     assert t.shape == (6, 3) and t.at["ResNet-50, 13 bands", "10%"] == "–"
     assert t.at["ResNet-50, 13 bands", "1%"] != "–"
+
+
+def test_empty_groups_return_none(tmp_path):
+    # Protects a run with no results yet: with an empty groups table (or no supervised rows) the
+    # figure functions return None and write no file.
+    empty = _groups().iloc[0:0]
+    assert figures.label_efficiency(empty, tmp_path / "a.png") is None
+    assert figures.label_efficiency(empty, tmp_path / "b.png", metric="acc") is None
+    assert figures.per_class_heatmap(_per_class(_groups()).iloc[0:0], 1.0, tmp_path / "c.png") is None
+    pl_only = _groups().assign(variant="pl")  # rows exist, but none are supervised
+    assert figures.label_efficiency(pl_only, tmp_path / "d.png") is None
+    assert not list(tmp_path.iterdir())
