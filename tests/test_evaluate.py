@@ -101,6 +101,28 @@ def test_recomputed_metrics_match_logged(runs_dir):
         assert check_against_logged(d, run_metrics(d)) == []
 
 
+def test_load_preds_cache(tmp_path):
+    """Predictions are read once, shared read-only, and re-read when the file is rewritten."""
+    import os
+
+    from eurosat_le.eval.evaluate import load_preds
+
+    d = make_run(tmp_path / "runs", "resnet50", "rgb", 0.01, 0, 0.80)
+    load_preds.cache_clear()
+    first = load_preds(d)
+    assert all(a is b for a, b in zip(first, load_preds(d)))  # second call hits the cache
+    with pytest.raises(ValueError):
+        first[0][0, 0] = 1.0  # shared arrays are read-only
+    f = d / "preds_test.npz"
+    data = dict(np.load(f))
+    data["logits"] = np.zeros_like(data["logits"])
+    np.savez(f, **data)
+    st = f.stat()
+    os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))  # make sure the mtime changes
+    assert not load_preds(d)[0].any()
+    load_preds.cache_clear()
+
+
 def test_evaluate_script_end_to_end(runs_dir, tmp_path):
     out = tmp_path / "eval"
     res = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "evaluate.py"), "--runs-dir", str(runs_dir),
