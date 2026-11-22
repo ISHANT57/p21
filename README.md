@@ -152,6 +152,13 @@ python scripts/make_figures.py                                  # Phase 7: resul
 
 Outputs go to `results/runs/<model>_<input>_<pct>pct_seed<s>/`. Pseudo-labelling is described in [docs/SSL.md](docs/SSL.md). See [docs/MODELS.md](docs/MODELS.md) for the models, how the first layer is set up for 13 bands, and the training details.
 
+## Team
+
+- **Ayush Kumar** — built an independent pipeline in [`ayush_pipeline/`](ayush_pipeline/): a label-efficiency grid
+  (4 models, 6 label fractions from 1% to 100%, 3 seeds each), a band-group ablation for the 13 Sentinel-2 bands,
+  a calibration analysis (ECE) from saved test logits, and the exploratory data analysis (class counts, sample grid,
+  spectral signatures). The report uses it to cross-check the main results.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch, commit and experiment-logging workflow.

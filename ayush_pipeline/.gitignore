@@ -1,0 +1,8 @@
+data/*
+!data/splits.json
+__pycache__/
+.ipynb_checkpoints/
+*.pt
+*.pth
+.venv/
+kaggle_out/
