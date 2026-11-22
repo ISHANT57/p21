@@ -1,0 +1,17 @@
+\begin{table}[t]
+\centering
+\caption{Band ablation by a teammate (his pipeline): ResNet-50 (ImageNet) test accuracy (\%), mean $\pm$ std over 3 seeds. Every input is taken from the 13-band files.}
+\label{tab:band_ablation}
+\small
+\begin{tabular}{lccc}
+\toprule
+Input bands & 1\\% & 10\\% & 100\\% \\
+\midrule
+RGB (from the GeoTIFF files) & 89.4 $\pm$ 0.6 & 97.3 $\pm$ 0.1 & 98.8 $\pm$ 0.1 \\
++ near-infrared (B08) & 91.4 $\pm$ 0.3 & 97.1 $\pm$ 0.1 & 98.9 $\pm$ 0.1 \\
++ B08 + red-edge (B05--B07, B8A) & 91.8 $\pm$ 0.8 & 97.4 $\pm$ 0.3 & 99.2 $\pm$ 0.1 \\
++ B08 + SWIR (B11, B12) & 92.2 $\pm$ 0.9 & 97.5 $\pm$ 0.1 & 99.0 $\pm$ 0.1 \\
+All 13 bands & 89.2 $\pm$ 0.6 & 96.8 $\pm$ 0.4 & 98.9 $\pm$ 0.2 \\
+\bottomrule
+\end{tabular}
+\end{table}

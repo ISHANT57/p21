@@ -254,8 +254,11 @@ Thirteen bands improve every model at every fraction in the mean, but by very di
 \subsection{Cross-check with an independent pipeline}\label{sec:crosscheck}
 A teammate, Ayush Kumar, built an independent pipeline for the same task (a separate repository, \url{https://github.com/kumarAyush24029/Eurosat-label-efficiency}; a different split, recipe and seeds; accuracy only). Table~\ref{tab:crosscheck} compares the RGB accuracy of the same three models. The pretrained models agree within 0.6 points in all six cells and the scratch CNN within 1.0 point (ours is 0.8 to 1.0 points lower), so the two pipelines give the same label-efficiency picture. His pipeline also trained ResNet-50 on the three RGB bands cut from the 13-band GeoTIFF files, which separates the effect of the input source from the effect of the extra bands (Table~\ref{tab:band_control}). At 1\% of the labels, RGB from the GeoTIFF files scores 1.0 point above the JPEG RGB, and adding all 13 bands changes the score by $-0.2$ points on top of that. Our ResNet-50 gain of 0.8 points (accuracy) over JPEG RGB at 1\% is therefore explained by the input source and not by the extra bands. At 10\% the two pipelines differ more (our gain is 1.0 point, his 0.0 over JPEG RGB), and at 100\% every effect is 0.4 points or less. For ResNet-50, then, our RGB-versus-13-band gain should not be attributed to the extra bands. The scratch CNN's gain of 3.5 to 4.2 points is much larger than this source effect, but we did not measure the source effect for that model.
 
+His band ablation (Table~\ref{tab:band_ablation}) feeds subsets of the 13-band files to the same network. Relative to RGB from the GeoTIFF files, the near-infrared band B08 adds 2.0 points at 1\% of the labels, and the red-edge set (B05--B07, B8A) and the short-wave-infrared set (B11, B12) add 2.4 and 2.8 points; these two differ from B08 alone by less than the seed-to-seed spread. From 5\% of the labels on, the near-infrared, red-edge and SWIR sets stay within 0.4 points of RGB, while all 13 bands are slightly worse at 1 to 10\% of the labels ($-0.2$ to $-0.7$ points). The useful extra information is therefore near-infrared, and it matters mostly when labels are very scarce.
+
 \input{\tabdir/crosscheck.tex}
 \input{\tabdir/band_control.tex}
+\input{\tabdir/band_ablation.tex}
 
 \subsection{Pseudo-labelling}
 \begin{figure}[t]
