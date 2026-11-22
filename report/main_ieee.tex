@@ -62,7 +62,7 @@ The rest of the report is organised as follows. Section~\ref{sec:related} places
 \textbf{Semi-supervised learning.} Pseudo-labelling~\cite{lee2013pseudo} trains a model on its own confident predictions for unlabelled images. Self-training with a noisy student~\cite{xie2020noisystudent} trains an equal or larger student, with added noise, on the labelled data plus the teacher's labels. MixMatch~\cite{berthelot2019mixmatch} and FixMatch~\cite{sohn2020fixmatch} add consistency losses between differently augmented views of each unlabelled image. Oliver et al.~\cite{oliver2018realistic} stress that semi-supervised methods must be compared with a well-tuned supervised baseline on the same budget, and Arazo et al.~\cite{arazo2020confirmation} show that wrong pseudo-labels can reinforce themselves (confirmation bias). We use the simple pseudo-labelling form, a strict choice of the threshold on validation data only, and a comparison of every student with its own teacher; consistency methods are left as future work.
 
 \section{Data and Splits}\label{sec:data}
-EuroSAT has 27{,}000 patches of $64\times64$ pixels in 10 classes, with 2{,}000 to 3{,}000 images per class (Table~\ref{tab:classes}). We use two versions of it: an RGB version (8-bit JPEG renderings of bands B04, B03, B02) and a 13-band version (16-bit GeoTIFF). Both contain exactly the same patch identifiers, so one split serves both inputs and an RGB model and a 13-band model are always trained and tested on the same scenes.
+EuroSAT has 27{,}000 patches of $64\times64$ pixels in 10 classes, with 2{,}000 to 3{,}000 images per class (Table~\ref{tab:classes}). We use two versions of it: an RGB version (8-bit JPEG renderings of bands B04, B03, B02) and a 13-band version (16-bit GeoTIFF). Both contain exactly the same patch identifiers, so one split serves both inputs and an RGB model and a 13-band model are always trained and tested on the same scenes. Figure~\ref{fig:eda} shows example patches (left) and the mean spectrum of each class (right): the vegetation classes stand out in the red-edge and near-infrared bands (B05--B08), which RGB does not contain.
 \begin{table}[t]
 \centering
 \caption{Images per class and split (stratified 70/15/15 split, seed 42).}
@@ -87,6 +87,23 @@ Total & 18{,}899 & 4{,}051 & 4{,}050 & 27{,}000 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+% Dataset figure (exploratory analysis by Ayush Kumar, issue #38). Two panels side by side in one figure* so
+% that the stand-alone version, which is near its page limit, spends only one float on them. The sample grid
+% is tall and narrow and the spectrum is wide and flat, so widths of 0.30 + 0.66 give similar heights.
+\begin{figure*}[t]
+\centering
+\begin{minipage}[b]{0.30\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/sample_grid.png}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.66\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/spectral_signatures.png}
+\end{minipage}
+\caption{Dataset overview. Left: eight random RGB training patches per class, in the row order of Table~\ref{tab:classes}. Right: mean pixel value of each class in the 13 bands, in the storage order of the GeoTIFF files, where the narrow near-infrared band B8A comes last.}
+\label{fig:eda}
+\end{figure*}
 
 \textbf{Splits.} We split the data once, stratified by class, with a fixed seed: 70\% train (18{,}899 images), 15\% validation (4{,}051) and 15\% test (4{,}050). The validation and test sets are identical for every model, input type, label fraction and seed. The validation set is used for early stopping, model selection, learning-rate choice and the pseudo-label threshold; the test set is used only to report the final scores.
 
