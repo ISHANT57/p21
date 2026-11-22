@@ -41,23 +41,22 @@ With only 3 seeds, the report states, for example, "13-band better in 3/3 seeds,
 
 The script prints how many runs and comparison pairs it will process before the slow part (the paired bootstrap), then one line per comparison file with its pair count and time (for example `compare_rgb_vs_ms: 27 pairs, 12.3 s`), and the total time next to the final `wrote ...` line. Pass `--quiet` to turn these messages off; the result tables and any metric warnings are still printed. The messages do not change any output file.
 
-## Results taken from logs (final results of this project)
+## Final results (all 52 runs evaluated from saved predictions)
 
-Only the run folders of one lane (ViT-Small at 1% and 10%, and ResNet-50 on 13 bands at 100%; 13 runs) were kept. For the other two lanes only the Colab notebooks, with their printed training logs, were kept, so their predictions do not exist and the full evaluation above cannot be run on them. The final tables and figures are therefore built from the numbers each run printed when it finished:
+The training ran in several Colab and Kaggle sessions, and the run folders of all 52 finished runs (42 supervised runs and 10 pseudo-label students) were collected into `results/runs/` (not in git: the prediction files are large). The final tables and figures are built like this:
 
-1. `python scripts/parse_colab_logs.py <notebooks...>` reads the result line of every finished run (`best epoch ... | test acc ... f1 ...`) and, for students, the teacher, threshold and pseudo-label count. It writes `results/logs/runs_from_logs.csv` and, for each notebook, the lines it used (`results/logs/<notebook>.txt`).
-2. `python scripts/eval_from_logs.py --runs-dir results/runs` writes `groups.csv` and the `compare_*` files in the same layout as `evaluate.py`. It cross-checks the 13 runs that have a folder against their `metrics.json`: all agree to the four printed decimals.
-3. `python scripts/evaluate.py --out results/summary/eval_laneB` evaluates those 13 runs fully. Their `per_class.csv` and `confusion/` are copied into `results/summary/eval/`, so `make_figures.py --fraction 0.01` can draw the per-class heatmap and confusion matrices of ViT-Small at 1% labels.
+1. `python scripts/evaluate.py` evaluates every run folder (accuracy, macro-F1, ECE, per-class scores, confusion matrices, paired bootstrap intervals) into `results/summary/eval/`.
+2. `python scripts/make_figures.py --fraction 0.01` (and `--fraction 0.1`) writes the figures and the main tables; `python scripts/make_report_tables.py` writes the extra tables (all runs, pseudo-label details, training cost, learning-rate sweep, model-against-model differences, calibration).
+3. The notebooks' printed result lines are kept in `results/logs/` (`scripts/parse_colab_logs.py` -> `runs_from_logs.csv`). They agree with the scores recomputed from the predictions for all 52 runs (four-decimal rounding only). One finished student (scratch CNN, RGB, 10% labels) is missing from the lane C log, which ends after its pseudo-labelling line, so its row in `runs_from_logs.csv` was added from its run folder (`metrics.json`, `pseudo_label_selection.json`).
+4. `results/summary/pseudo_label_quality.csv` lists the accuracy of each student's pseudo-labels against the hidden pool labels (from `pseudo_label_quality.json` of each student's run folder) next to the threshold and validation precision.
 
-4. `python scripts/make_report_tables.py` writes the extra report tables (all runs, pseudo-label details, training cost, the learning-rate sweep from `results/logs/tuning_from_logs.csv`, model-against-model differences) to `results/tables/`.
+What remains limited, and has to be said wherever the numbers are used:
 
-What differs from a full evaluation, and has to be said wherever these numbers are used:
+- **Single-seed cells** (the 100% runs, the scratch CNN students) are shown as `(n=1)`, with no spread.
+- **Incomplete pseudo-labelling.** Only 10 of the planned 24 students finished: 8 ResNet-50 students (seeds 0 and 1) and 2 scratch CNN students (RGB, seed 0, at 1% and 10%). A scratch CNN student for 13 bands (1%, seed 0) was interrupted and has no result.
+- **ECE only.** The sign of the calibration gap (over- or under-confidence) was not saved.
 
-- **No bootstrap intervals.** A paired comparison is the per-seed difference of two logged macro-F1 values, and `seeds_ci_excludes_0` is empty. Only the ViT-Small RGB versus 13-band comparison has intervals (`results/summary/eval_laneB/`).
-- **No calibration (ECE)** and numbers with four decimals, as printed.
-- **Per-class scores and confusion matrices exist only for the 13 runs with predictions** (ViT-Small at 1% and 10%, ResNet-50 on 13 bands at 100%).
-- **Single-seed cells** (the 100% runs, and the scratch CNN student) are shown as `(n=1)`, with no spread.
-- **Incomplete pseudo-labelling.** Students that had not finished when the sessions ended are not counted: 8 ResNet-50 students (seeds 0 and 1) and 1 scratch CNN student (RGB, 1%, seed 0).
+`results/summary/eval_laneB/` is the earlier evaluation of the first 13 runs with predictions; it is kept for reference and is superseded by `results/summary/eval/`.
 
 ## Cross-check with an independent pipeline
 

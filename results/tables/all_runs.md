@@ -43,6 +43,7 @@
 | ViT-Small | 13 bands | 10% | 2 | supervised | 97.43 | 97.33 | 97.80 | 27 | 7.2 |
 | ViT-Small | 13 bands | 100% | 0 | supervised | 98.96 | 98.91 | 99.31 | 28 | 34.0 |
 | Scratch CNN | RGB (3 bands) | 1% | 0 | pseudo-label | 77.26 | 76.76 | 77.49 | 33 | 8.8 |
+| Scratch CNN | RGB (3 bands) | 10% | 0 | pseudo-label | 91.58 | 91.53 | 92.24 | 19 | 9.0 |
 | ResNet-50 | RGB (3 bands) | 1% | 0 | pseudo-label | 91.23 | 90.95 | 91.61 | 2 | 12.4 |
 | ResNet-50 | RGB (3 bands) | 1% | 1 | pseudo-label | 91.23 | 90.86 | 90.86 | 8 | 12.8 |
 | ResNet-50 | RGB (3 bands) | 10% | 0 | pseudo-label | 96.49 | 96.50 | 96.87 | 8 | 14.4 |
