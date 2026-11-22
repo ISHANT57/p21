@@ -104,8 +104,7 @@ Every comparison uses the same fixed split, the same training budget rule and th
 \textbf{Semi-supervised learning.} Pseudo-labelling~\cite{lee2013pseudo} trains a model on its own confident predictions for unlabelled images. Self-training with a noisy student~\cite{xie2020noisystudent} trains an equal or larger student, with added noise, on the labelled data plus the teacher's labels. MixMatch~\cite{berthelot2019mixmatch} and FixMatch~\cite{sohn2020fixmatch} add consistency losses between differently augmented views of each unlabelled image. Oliver et al.~\cite{oliver2018realistic} stress that semi-supervised methods must be compared with a well-tuned supervised baseline on the same budget, and Arazo et al.~\cite{arazo2020confirmation} show that wrong pseudo-labels can reinforce themselves (confirmation bias). We use the simple pseudo-labelling form, a strict choice of the threshold on validation data only, and a comparison of every student with its own teacher; consistency methods are left as future work.
 
 \section{Data and Splits}\label{sec:data}
-EuroSAT has 27{,}000 patches of $64\times64$ pixels in 10 classes, with 2{,}000 to 3{,}000 images per class (Table~\ref{tab:classes}). We use two versions of it: an RGB version (8-bit JPEG renderings of bands B04, B03, B02) and a 13-band version (16-bit GeoTIFF). Both contain exactly the same patch identifiers, so one split serves both inputs and an RGB model and a 13-band model are always trained and tested on the same scenes. Figure~\ref{fig:samples} shows example patches (left) and the mean spectrum of each class (right): the vegetation classes stand out in the red-edge and near-infrared bands (B05--B08), which RGB does not contain.
-
+EuroSAT has 27{,}000 patches of $64\times64$ pixels in 10 classes, with 2{,}000 to 3{,}000 images per class (Table~\ref{tab:classes}). We use two versions of it: an RGB version (8-bit JPEG renderings of bands B04, B03, B02) and a 13-band version (16-bit GeoTIFF). Both contain exactly the same patch identifiers, so one split serves both inputs and an RGB model and a 13-band model are always trained and tested on the same scenes.
 \begin{table}[t]
 \centering
 \caption{Images per class and split (stratified 70/15/15 split, seed 42).}
@@ -130,20 +129,6 @@ Total & 18{,}899 & 4{,}051 & 4{,}050 & 27{,}000 \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\begin{figure}[t]
-\centering
-\begin{minipage}[b]{0.30\textwidth}
-\centering
-\includegraphics[width=\linewidth]{\figdir/dataset_samples.png}
-\end{minipage}\hfill
-\begin{minipage}[b]{0.66\textwidth}
-\centering
-\includegraphics[width=\linewidth]{\figdir/dataset_spectral.png}
-\end{minipage}
-\caption{Exploratory analysis of the data (by Ayush Kumar). Left: eight random RGB training patches per class, one row per class in the order of Table~\ref{tab:classes}; water and forest patches are dark and uniform, while the crop and vegetation classes look alike. Right: mean pixel value of each class in the 13 bands, in the storage order of the GeoTIFF files, in which the narrow near-infrared band B8A comes last, not between B08 and B09. SeaLake stays below about 500 from B04 on; vegetation classes rise sharply from B05 to B08 (red edge and near-infrared); B10 (cirrus) is close to zero for every class.}
-\label{fig:samples}
-\end{figure}
 
 \textbf{Splits.} We split the data once, stratified by class, with a fixed seed: 70\% train (18{,}899 images), 15\% validation (4{,}051) and 15\% test (4{,}050). The validation and test sets are identical for every model, input type, label fraction and seed. The validation set is used for early stopping, model selection, learning-rate choice and the pseudo-label threshold; the test set is used only to report the final scores.
 
@@ -294,11 +279,6 @@ At 1\% of the labels, the largest confusions of ViT-Small are among vegetation c
 With 10\% of the labels the picture changes. Every class of ViT-Small reaches at least 94.5\% F1, and the River gain from 13 bands has disappeared (97.9\% with both inputs), so it may have been a small-sample effect. The largest remaining confusions are AnnualCrop predicted as PermanentCrop (2.1--2.8\%) and PermanentCrop predicted as HerbaceousVegetation (1.4\% on 13 bands, 2.8\% on RGB). PermanentCrop is the class with the lowest F1 on RGB (94.5\%) and gains 1.2 points on 13 bands, SeaLake gains 1.0 point (98.6 to 99.6\%), and Pasture loses 1.1 points. These per-class differences are small compared with their standard deviations over three seeds, so we do not interpret them one by one.
 
 
-\subsection{Calibration}\label{sec:calibration}
-Table~\ref{tab:calibration} gives the expected calibration error (ECE) of the supervised runs: the gap between the confidence of a prediction and how often it is right, averaged over 15 confidence bins. With 1\% of the labels the scratch CNN is badly calibrated (ECE 18.1\% on RGB and 16.2\% on 13 bands), the pretrained models much less (3.9--6.6\%), and with 10\% of the labels all models are at 1.1--3.0\%; with all labels every model is below 1\% (one seed). Pretraining therefore also gives more trustworthy confidences, and this matters for pseudo-labelling, which relies on them: the scratch CNN teacher at 1\% needed $\tau=0.99$. The 13-band input lowers the ECE of the scratch CNN (18.1 to 16.2\% at 1\%, 3.0 to 1.9\% at 10\%), but for the pretrained models the change is at most 1.0 point and not in the same direction for both. All ten pseudo-label students have a lower ECE than their own teacher (for example 6.4 to 4.7\% for ResNet-50 on 13 bands at 1\%). We report only the ECE; the sign of the gap (over- or under-confidence) was not saved.
-
-\input{\tabdir/calibration.tex}
-
 \section{Discussion}\label{sec:discussion}
 The results suggest four rules for a similar problem. First, when only a few hundred labels are available, start from a pretrained model: the gap to a model trained from scratch is 11--16 points at 1\% of the labels, and the pretrained transformer was the best choice at 1\% and 10\%. Second, when the labelled set is large, the choice of model matters little (all models are within 1.6 points at 100\%), so cost can decide: the scratch CNN trains in 22 minutes against 42 for ResNet-50. Third, use the extra bands if the model is trained from scratch, where they gave 3.5--4.2 points, but do not expect more than one point for a pretrained RGB network without a better first-layer initialisation (and for ResNet-50 even that point is explained by the input source, Section~\ref{sec:crosscheck}). Fourth, pseudo-labelling is worth its roughly 1.5-fold training cost at 1\% of the labels, where it lifted ResNet-50 to the level of the supervised ViT-Small, and not at 10\%, where the teacher is already accurate on almost the whole pool.
 
@@ -318,7 +298,7 @@ The results suggest four rules for a similar problem. First, when only a few hun
 Five extensions follow from the limitations. (i)~Start from a model pretrained on 13-band Sentinel-2 data~\cite{wang2023ssl4eo,cong2022satmae}, which would show how much of the small gain for pretrained models comes from the RGB-based first layer. (ii)~Use a spatially disjoint split to test how much of the accuracy comes from neighbouring, similar patches. (iii)~Run the missing seeds (the 100\% cells and the remaining students), which would give standard deviations for those cells. (iv)~Add a band ablation (13 bands without B10, and RGB plus near-infrared) to see which extra bands carry the gain for the scratch CNN. (v)~Replace the global threshold by a per-class or class-balanced selection, and compare with consistency-based methods such as FixMatch~\cite{sohn2020fixmatch}, on the same compute budget as the supervised baseline~\cite{oliver2018realistic}.
 
 \section{Conclusion}
-On EuroSAT, a pretrained model keeps 88.5--91.2\% macro-F1 with 1\% of the labels, where a scratch CNN reaches 74.6--78.1\%. Our scratch CNN is a different network, so the cleaner evidence is the independent pipeline, in which ResNet-50 reaches 88.3\% accuracy with ImageNet weights and 73.5\% without at 1\% of the labels; a scratch ResNet-50 needs about six times as many labels to match the pretrained one. The 13-band input adds 3.5--4.2 points for the scratch CNN but under one point for the pretrained models, and a control from an independent pipeline shows that for ResNet-50 this small gain comes from the input source (GeoTIFF versus JPEG), not from the extra bands. Pseudo-labelling adds about 2.3 points for ResNet-50 at 1\% of the labels and little at 10\%. Because of the time limit, the 100\% results have one seed and pseudo-labelling has one or two seeds, so we state the direction of effects and not exact sizes.
+On EuroSAT, a pretrained model keeps 88.5--91.2\% macro-F1 with 1\% of the labels, where a scratch CNN reaches 74.6--78.1\%, so pretraining matters more than the amount of labelled data. The 13-band input adds 3.5--4.2 points for the scratch CNN but under one point for the pretrained models, and a control from an independent pipeline shows that for ResNet-50 this small gain comes from the input source (GeoTIFF versus JPEG), not from the extra bands. Pseudo-labelling adds about 2.3 points for ResNet-50 at 1\% of the labels and little at 10\%. Because of the time limit, the 100\% results have one seed and pseudo-labelling has one or two seeds, so we state the direction of effects and not exact sizes.
 
 \section{Reproducibility}\label{sec:repro}
 The code, the logs of every run and all figures and tables are in the public repository \url{https://github.com/ISHANT57/p21}; the results in this report are the tag \texttt{results-v2}. The code is released under the MIT licence, and automated tests run on every change. The steps are scripts in the \texttt{scripts} folder: \texttt{download\_data.py}, \texttt{make\_splits.py}, \texttt{build\_cache.py}, \texttt{run\_grid.py}, \texttt{evaluate.py} (or \texttt{parse\_colab\_logs.py} and \texttt{eval\_from\_logs.py} when only the run logs exist), \texttt{make\_figures.py} and \texttt{make\_report\_tables.py}. A table of all 52 runs is in \path{results/tables/all_runs.md} and the design decisions with their known weaknesses are in \path{docs/DESIGN_DECISIONS.md}.
