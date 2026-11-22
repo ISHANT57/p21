@@ -279,9 +279,9 @@ With 10\% of the labels (Fig.~\ref{fig:confusion10}, Table~\ref{tab:per_class_f1
 % Calibration (issue #41): the table comes from results/summary/eval/per_run.csv (column test_ece) through
 % scripts/make_report_tables.py. The numbers quoted below are read from that table.
 \subsection{Calibration}\label{sec:calibration}
-Table~ef{tab:calibration} gives the expected calibration error (ECE) of every run with saved predictions: the gap between the confidence of a prediction and how often it is right, averaged over 15 confidence bins. With 1\% of the labels the scratch CNN is badly calibrated (ECE 18.1\% on RGB and 16.2\% on 13 bands) and the pretrained models much less so (3.9--6.6\%), while with all labels every model is below 1\% (one seed), so pretraining also gives more trustworthy confidences, which matters for pseudo-labelling because it relies on them.
+Table~\ref{tab:calibration} gives the expected calibration error (ECE) of every run with saved predictions: the gap between the confidence of a prediction and how often it is right, averaged over 15 confidence bins. With 1\% of the labels the scratch CNN is badly calibrated (ECE 18.1\% on RGB and 16.2\% on 13 bands) and the pretrained models much less so (3.9--6.6\%), while with all labels every model is below 1\% (one seed), so pretraining also gives more trustworthy confidences, which matters for pseudo-labelling because it relies on them.
 
-\input{	abdir/calibration.tex}
+\input{\tabdir/calibration.tex}
 
 \section{Discussion}\label{sec:discussion}
 \subsection{Answers to the three questions}
