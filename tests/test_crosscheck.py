@@ -49,8 +49,8 @@ def test_band_control_separates_input_source_from_extra_bands():
     r = t.iloc[0]  # 1% labels: JPEG 88.0, GeoTIFF RGB 89.0, 13 bands 88.5
     assert r["GeoTIFF RGB $-$ JPEG RGB"] == "+1.0"   # the input source alone
     assert r["13 bands $-$ GeoTIFF RGB"] == "-0.5"   # the extra bands on top of it
-    assert r["13 bands $-$ JPEG RGB (other)"] == "+0.5"
-    assert r["13 bands $-$ JPEG RGB (ours)"] == "+2.0"
+    assert r["13 bands $-$ JPEG (other)"] == "+0.5"
+    assert r["13 bands $-$ JPEG (ours)"] == "+2.0"
     assert t.iloc[1]["13 bands $-$ GeoTIFF RGB"] == "+0.0"  # a zero difference never prints as -0.0
 
 
@@ -64,5 +64,20 @@ def test_band_ablation_table_has_one_row_per_input_and_one_column_per_fraction()
     ablation = pd.DataFrame([dict(input=k, frac=f, mean_acc=90.0 + i, std_acc=0.5, n=3)
                              for i, k in enumerate(keys) for f in cc.FRACTIONS])
     t = cc.band_ablation_table(ablation)
-    assert len(t) == len(keys) and list(t.columns) == ["Input bands", "1\%", "10\%", "100\%"]
-    assert t.iloc[0]["1\%"] == "90.0 ± 0.5" and t.iloc[-1]["100\%"] == "94.0 ± 0.5"
+    assert len(t) == len(keys) and list(t.columns) == ["Input bands", "1%", "10%", "100%"]
+    assert t.iloc[0]["1%"] == "90.0 ± 0.5" and t.iloc[-1]["100%"] == "94.0 ± 0.5"
+
+
+def test_generated_latex_escapes_every_percent_sign_exactly_once(tmp_path):
+    """An already escaped percent sign that is escaped again ends the table row and comments out the rest of the line."""
+    import subprocess
+    # Rebuild the three tables from the saved summaries and our logged runs (committed files), into a temporary folder.
+    res = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "crosscheck_pipelines.py"), "--tables", str(tmp_path)],
+                         capture_output=True, text=True, env={**__import__("os").environ, "PYTHONPATH": str(REPO_ROOT / "src")})
+    assert res.returncode == 0, res.stderr
+    for name in ("crosscheck", "band_control", "band_ablation"):
+        text = (tmp_path / f"{name}.tex").read_text(encoding="utf-8")
+        # no doubled backslash in front of a percent sign, and no bare percent sign at all
+        assert "\\\\%" not in text, f"{name}.tex has a doubled backslash before %"
+        bare = [i for i, ch in enumerate(text) if ch == "%" and (i == 0 or text[i - 1] != "\\")]
+        assert not bare, f"{name}.tex has a bare %"

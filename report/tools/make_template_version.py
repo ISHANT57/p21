@@ -15,7 +15,7 @@ bib_text = (root / "references.bib").read_text(encoding="utf-8")
 
 abstract = re.search(r"\\begin\{list\}.*?\\item\[\] (.*?)\n\\end\{list\}", main, flags=re.S).group(1).strip()
 keywords = re.search(r"\\textit\{Key Words\}: (.*?)\.(?:\\par)?\n", main).group(1)
-body = main[main.index("\\section{Introduction}"): main.index("{\\small\n\\bibliographystyle{plain}")]
+body = main[main.index("\\section{Introduction}"): main.index("{\\footnotesize\n\\bibliographystyle{plain}")]
 
 # ---- parse references.bib (small, regular format written by hand) -----------------------------------------------------------------
 entries = {}

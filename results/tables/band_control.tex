@@ -2,14 +2,14 @@
 \centering
 \caption{ResNet-50 (ImageNet): the effect of the input source and of the extra bands, in accuracy points. ``Other'' is the independent pipeline, which also trained on RGB cut from the 13-band files.}
 \label{tab:band_control}
-\small
+\footnotesize
 \begin{tabular}{lcccc}
 \toprule
-Labels & GeoTIFF RGB $-$ JPEG RGB & 13 bands $-$ GeoTIFF RGB & 13 bands $-$ JPEG RGB (other) & 13 bands $-$ JPEG RGB (ours) \\
+Labels & GeoTIFF RGB $-$ JPEG RGB & 13 bands $-$ GeoTIFF RGB & 13 bands $-$ JPEG (other) & 13 bands $-$ JPEG (ours) \\
 \midrule
-1\\% & +1.0 & -0.2 & +0.8 & +0.8 \\
-10\\% & +0.6 & -0.5 & +0.0 & +1.0 \\
-100\\% & +0.1 & +0.1 & +0.2 & +0.4 \\
+1\% & +1.0 & -0.2 & +0.8 & +0.8 \\
+10\% & +0.6 & -0.5 & +0.0 & +1.0 \\
+100\% & +0.1 & +0.1 & +0.2 & +0.4 \\
 \bottomrule
 \end{tabular}
 \end{table}

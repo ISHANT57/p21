@@ -39,7 +39,9 @@ from eurosat_le import tables as tab
 MODEL_PAIRS = [("cnn", "scratch", "scratch_cnn", "Scratch CNN"), ("resnet50", "imagenet", "resnet50", "ResNet-50 (ImageNet)"),
                ("vit_s", "imagenet", "vit_small", "ViT-Small (ImageNet)")]
 FRACTIONS = (0.01, 0.1, 1.0)
-LABEL = {0.01: "1\\%", 0.1: "10\\%", 1.0: "100\\%"}
+# Plain text on purpose: the table writer escapes the percent sign itself, so an already escaped one would come out
+# as a doubled backslash and break the table row.
+LABEL = {0.01: "1%", 0.1: "10%", 1.0: "100%"}
 # the other pipeline's band-ablation inputs (all taken from the 13-band files) and how the report names them
 ABLATION_ROWS = {"rgb_ms": "RGB (from the GeoTIFF files)", "rgb+nir": "+ near-infrared (B08)",
                  "rgb+nir+rededge": "+ B08 + red-edge (B05--B07, B8A)", "rgb+nir+swir": "+ B08 + SWIR (B11, B12)",
@@ -100,8 +102,8 @@ def band_control_table(control: pd.DataFrame, summary: pd.DataFrame, ours: pd.Da
                 - mine[(mine["modality"] == "rgb") & (mine["fraction"] == f)].test_acc.mean()) * 100
         rows.append({"Labels": LABEL[f], "GeoTIFF RGB $-$ JPEG RGB": _diff(tif[f] - jpeg[f]),
                      "13 bands $-$ GeoTIFF RGB": _diff(all13[f] - tif[f]),
-                     "13 bands $-$ JPEG RGB (other)": _diff(all13[f] - jpeg[f]),
-                     "13 bands $-$ JPEG RGB (ours)": _diff(gain)})
+                     "13 bands $-$ JPEG (other)": _diff(all13[f] - jpeg[f]),
+                     "13 bands $-$ JPEG (ours)": _diff(gain)})
     return pd.DataFrame(rows)
 
 
@@ -137,7 +139,8 @@ def main() -> None:
     t2 = band_control_table(control, summary, ours)
     tab.write_table(t2, args.tables, "band_control",
                     "ResNet-50 (ImageNet): the effect of the input source and of the extra bands, in accuracy points. "
-                    "``Other'' is the independent pipeline, which also trained on RGB cut from the 13-band files.")
+                    "``Other'' is the independent pipeline, which also trained on RGB cut from the 13-band files.",
+                    font=r"\footnotesize")
     t3 = band_ablation_table(pd.read_csv(args.out / "other_pipeline_band_ablation.csv"))
     tab.write_table(t3, args.tables, "band_ablation",
                     "Band ablation in the independent pipeline: ResNet-50 (ImageNet) test accuracy (\\%), mean $\\pm$ std over "

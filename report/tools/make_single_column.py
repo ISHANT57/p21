@@ -131,6 +131,15 @@ body = body.replace("\\begin{table*}[t]", "\\begin{table}[t]").replace("\\end{ta
 body = drop(r"\\begin\{figure\}\[t\]\n\\centering\n\\includegraphics\[width=\\columnwidth\]\{\\figdir/per_class_f1_1pct\.png\}.*?\\end\{figure\}\n", body)
 body = drop(r"\\begin\{figure\}\[t\]\n\\centering\n\\includegraphics\[width=0\.85\\textwidth\]\{\\figdir/confusion_10pct\.png\}.*?\\end\{figure\}\n", body)
 body = drop(r"\\input\{\\tabdir/per_class_f1_10pct\.tex\}\n", body)
+# To stay near 12 pages three more tables go (they are in the full version and in results/tables): the model-against-model
+# differences, the per-class F1 at 1%, and the pseudo-label summary (its per-student table stays).
+body = drop(r"\\input\{\\tabdir/model_comparison\.tex\}\n\n", body)
+body = sub1(r"Table~\\ref\{tab:model_comparison\} compares the models directly, matched on seed\.",
+            "Matched on seed (full table in the repository), the models compare as follows.", body)
+body = drop(r"\\input\{\\tabdir/per_class_f1_1pct\.tex\}\n", body)
+body = sub1(r"\(Table~\\ref\{tab:per_class_f1_1pct\}\)", "(table in the repository)", body)
+body = drop(r"\\input\{\\tabdir/semi_supervised\.tex\}\n", body)
+body = sub1(r"Tables~\\ref\{tab:semi_supervised\} and~\\ref\{tab:pl_details\}", r"Table~\\ref{tab:pl_details}", body)
 body = sub1(r"\(Fig\.~\\ref\{fig:confusion10\}, Table~\\ref\{tab:per_class_f1_10pct\}\) the picture changes", "the picture changes", body)
 body = drop(r"\\input\{\\tabdir/training_cost\.tex\}\n\n", body)
 body = sub1(r"Table~\\ref\{tab:training_cost\} gives the mean time per supervised run\.",
@@ -144,7 +153,7 @@ body = sub1(r"\(Table~\\ref\{tab:lr_sweep\}\)\. For the scratch CNN, \$2\\times1
             r"""(the sweep is listed in the repository). For the scratch CNN, $2\times10^{-3}$ was best among $\{10^{-3}, 2\times10^{-3}, 4\times10^{-3}\}$, with validation macro-F1 0.930, 0.931 and 0.921.""", body)
 body = drop(r"\\begin\{table\}\[t\]\n\\centering\n\\caption\{Steps to reproduce the results\..*?\\end\{table\}\n\n", body)
 body = sub1(r"Table~\\ref\{tab:repro\} lists the steps, each a script in the \\texttt\{scripts\} folder of the repository\.",
-            r"""The steps are scripts in the \texttt{scripts} folder: \texttt{download\_data.py}, \texttt{make\_splits.py}, \texttt{build\_cache.py}, \texttt{run\_grid.py}, \texttt{evaluate.py} (or \texttt{parse\_colab\_logs.py} and \texttt{eval\_from\_logs.py} when only the run logs exist), \texttt{make\_figures.py} and \texttt{make\_report\_tables.py}. A table of all 51 runs is in \path{results/tables/all_runs.md} and the design decisions with their known weaknesses are in \path{docs/DESIGN_DECISIONS.md}.""", body)
+            r"""The steps are scripts in the \texttt{scripts} folder: \texttt{download\_data.py}, \texttt{make\_splits.py}, \texttt{build\_cache.py}, \texttt{run\_grid.py}, \texttt{evaluate.py} (or \texttt{parse\_colab\_logs.py} and \texttt{eval\_from\_logs.py} when only the run logs exist), \texttt{make\_figures.py} and \texttt{make\_report\_tables.py}. A table of all 52 runs is in \path{results/tables/all_runs.md} and the design decisions with their known weaknesses are in \path{docs/DESIGN_DECISIONS.md}.""", body)
 
 # --- the paragraph that announces the sections (it mentioned the appendices) -------------------------------------
 body = drop(r"The rest of the report is organised as follows\..*?\n\n", body)
@@ -162,21 +171,20 @@ idx = body.index("\\appendices")
 main_part, tail = body[:idx], body[idx:]
 repro = tail[tail.index("\\section{Reproducibility}"):tail.index("\\end{document}")].replace("app:repro", "sec:repro")
 main_part = sub1(r"\\bibliographystyle\{IEEEtran\}\n\\bibliography\{references\}\n",
-                 repro + "\n{\\small\n\\bibliographystyle{plain}\n\\bibliography{references}\n}\n", main_part)
+                 repro + "\n{\\footnotesize\n\\bibliographystyle{plain}\n\\bibliography{references}\n}\n", main_part)
 body = main_part + "\n\\end{document}\n"
 
 # --- figure widths for the 17 cm text width -------------------------------------------------------------------------
-body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/label_efficiency_f1\.png\}", r"width=0.86\textwidth]{\figdir/label_efficiency_f1.png}", body)
-body = sub1(r"width=\\columnwidth\]\{\\figdir/rgb_vs_ms_gain\.png\}", r"width=0.60\textwidth]{\figdir/rgb_vs_ms_gain.png}", body)
-body = sub1(r"width=\\columnwidth\]\{\\figdir/pseudo_label_gain\.png\}", r"width=0.72\textwidth]{\figdir/pseudo_label_gain.png}", body)
-body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/confusion_1pct\.png\}", r"width=0.90\textwidth]{\figdir/confusion_1pct.png}", body)
-body = sub1(r"width=0\.82\\columnwidth\]\{\\figdir/dataset_samples\.png\}", r"width=0.40\textwidth]{\figdir/dataset_samples.png}", body)
-body = sub1(r"width=\\columnwidth\]\{\\figdir/dataset_spectral\.png\}", r"width=0.72\textwidth]{\figdir/dataset_spectral.png}", body)
+body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/label_efficiency_f1\.png\}", r"width=0.78\textwidth]{\figdir/label_efficiency_f1.png}", body)
+body = sub1(r"width=\\columnwidth\]\{\\figdir/rgb_vs_ms_gain\.png\}", r"width=0.52\textwidth]{\figdir/rgb_vs_ms_gain.png}", body)
+body = sub1(r"width=\\columnwidth\]\{\\figdir/pseudo_label_gain\.png\}", r"width=0.62\textwidth]{\figdir/pseudo_label_gain.png}", body)
+body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/confusion_1pct\.png\}", r"width=0.75\textwidth]{\figdir/confusion_1pct.png}", body)
 
 body = body.replace("Fig.~\\ref", "Figure~\\ref")
 
 out = head + body
 for leftover in ("tab:training_cost", "tab:supervised_acc", "tab:models", "tab:lr_sweep", "tab:repro", "tab:per_class_f1_10pct", "fig:confusion10",
+                 "tab:model_comparison", "tab:per_class_f1_1pct", "tab:semi_supervised",
                  "tab:all_runs", "tab:design", "app:", "appendices", "IEEEtran", "IEEEkeywords", "IEEEauthor"):
     assert leftover not in out.replace("\\label", "").replace("main_ieee", ""), f"leftover {leftover}"
 (root / "main.tex").write_text(out, encoding="utf-8")
