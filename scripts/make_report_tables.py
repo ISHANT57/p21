@@ -78,7 +78,7 @@ from eurosat_le.figures import FRACTION_LABEL, MODALITY_LABEL, MODEL_LABEL, MODE
 # ======================================================================
 # Q: What is this file for?
 #    A: It writes the extra report tables that make_figures.py does not make: all_runs, pl_details, training_cost,
-#       lr_sweep and model_comparison, each as .md and .tex.
+#       lr_sweep, model_comparison and calibration, each as .md and .tex.
 # Q: Where does it fit in the pipeline?
 #    A: After parse_colab_logs.py (runs_from_logs.csv, tuning_from_logs.csv) and eval_from_logs.py (compare_*.csv).
 #       scripts/make_figures.py writes the main tables; this script writes the rest.
@@ -366,8 +366,8 @@ def calibration(eval_dir: Path) -> pd.DataFrame | None:
 
 
 # Q: What does main do?
-#    A: It loads runs_from_logs.csv, builds the five tables with their LaTeX captions and sizes, and writes each one as
-#       .md and .tex, printing how many rows were written.
+#    A: It loads runs_from_logs.csv, builds the six tables with their LaTeX captions and sizes, and writes each one as
+#       .md and .tex, printing how many rows were written. The calibration table reads per_run.csv from --eval.
 # Q: Why are some tables skipped?
 #    A: A table that is None or empty (for example model_comparison when no compare_*.csv exists) is reported as
 #       'skipped' instead of crashing the script. The sweep table is only attempted if tuning_from_logs.csv exists.
@@ -375,7 +375,7 @@ def calibration(eval_dir: Path) -> pd.DataFrame | None:
 #    A: They are written into the code (for example 'All 51 finished runs'), so they must be updated if the number of
 #       runs changes.
 def main() -> None:
-    """Write the five tables."""
+    """Write the six tables."""
     # Build the command-line parser; its description is the first line of this file's docstring.
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     # Option: folder with runs_from_logs.csv and tuning_from_logs.csv.
@@ -405,6 +405,11 @@ def main() -> None:
     # The model-against-model table is built from the comparison summaries.
     made.append(("model_comparison", model_comparison(args.eval), "Differences in test macro-F1 between models, supervised runs, "
                  "matched on seed (second model minus first).", True, r"\small"))
+    # The calibration table comes from the saved-prediction evaluation (column test_ece of per_run.csv). It is a narrow
+    # table (three label columns), so it fits one column.
+    made.append(("calibration", calibration(args.eval), "Expected calibration error (ECE, \\%, 15 bins) on the test set, "
+                 "mean $\\pm$ std over seeds; (n=1) is one seed and $-$ means no run. Lower is better. Every run with saved "
+                 "predictions is included.", False, r"\small"))
     # Write each table, skipping the ones without data.
     for name, df, caption, wide, font in made:
         # A None or empty table means its input was missing, so report it and move on.
