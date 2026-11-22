@@ -15,6 +15,8 @@ Writes, each as <name>.md and <name>.tex in --out:
     training_cost     mean time and best epoch per model and label fraction (supervised runs)
     lr_sweep          the learning-rate sweep (validation scores only)
     model_comparison  scratch CNN -> ResNet-50 -> ViT-Small, matched on seed (supervised runs)
+    calibration       mean test ECE per model, input, training type and label fraction (every run with saved
+                      predictions, from results/summary/eval/per_run.csv written by scripts/evaluate.py)
 
 Design decisions:
 - Scores are shown in percent with one decimal, as in the main tables; a cell with one seed shows
@@ -26,7 +28,7 @@ Design decisions:
 import argparse
 from pathlib import Path
 
-# numpy is imported here but not used directly in this file; pandas builds and reads the tables.
+# numpy compares label fractions safely (np.isclose in calibration); pandas builds and reads the tables.
 import numpy as np
 import pandas as pd
 
@@ -76,7 +78,7 @@ from eurosat_le.figures import FRACTION_LABEL, MODALITY_LABEL, MODEL_LABEL, MODE
 # ======================================================================
 # Q: What is this file for?
 #    A: It writes the extra report tables that make_figures.py does not make: all_runs, pl_details, training_cost,
-#       lr_sweep and model_comparison, each as .md and .tex.
+#       lr_sweep, model_comparison and calibration, each as .md and .tex.
 # Q: Where does it fit in the pipeline?
 #    A: After parse_colab_logs.py (runs_from_logs.csv, tuning_from_logs.csv) and eval_from_logs.py (compare_*.csv).
 #       scripts/make_figures.py writes the main tables; this script writes the rest.
@@ -307,9 +309,65 @@ def model_comparison(eval_dir: Path) -> pd.DataFrame | None:
     return pd.DataFrame(rows) if rows else None
 
 
+# Q: What does this function do?
+#    A: It builds the calibration table: for every model, input and training type (supervised or pseudo-label student)
+#       the expected calibration error (ECE) of the test predictions, as mean ± std over seeds, one column per label
+#       fraction. It reads results/summary/eval/per_run.csv (column test_ece, written by scripts/evaluate.py).
+# Q: What is the ECE?
+#    A: Expected calibration error. The test images are sorted into 15 bins by the model's confidence (the probability
+#       it gives to its predicted class). In each bin the average confidence is compared with the share of correct
+#       predictions; the ECE is the bin-size-weighted average of these gaps. A model that says '90%' and is right 90% of
+#       the time has an ECE near 0; a small value means the confidence can be trusted.
+# Q: Why are accuracy and the mean confidence not columns of this table?
+#    A: The accuracy is already in the main tables, and per_run.csv stores only the ECE, not the mean confidence (the
+#       sign of the gap, over- or under-confidence, was not saved either), so the table shows the ECE alone.
+# Q: Why does the table only cover some runs?
+#    A: The ECE needs the predicted probabilities, so it exists only for runs whose predictions were saved. Cells
+#       without a run show '-' (for example pseudo-label students were not trained with 100% of the labels).
+def calibration(eval_dir: Path) -> pd.DataFrame | None:
+    """Mean test ECE (percent) per model, input and training type, one column per label fraction.
+
+    Args:
+        eval_dir: folder with per_run.csv, written by scripts/evaluate.py (columns model, modality, fraction,
+            variant, seed and test_ece, where test_ece is a 0-1 value).
+    Returns:
+        A table of display strings, or None if per_run.csv does not exist or holds no rows.
+    """
+    # Where the per-run evaluation table should be; without it there is no calibration to show.
+    f = eval_dir / "per_run.csv"
+    if not f.exists():
+        return None
+    runs = pd.read_csv(f)
+    # One column per label fraction that occurs in the data, from the smallest to the largest.
+    fractions = sorted(runs["fraction"].unique())
+    # Display rows, one per (training type, model, input) combination that has at least one run.
+    rows = []
+    # Supervised runs first, then the pseudo-label students, so students never mix into a supervised cell.
+    for variant in ("supervised", "pl"):
+        # Models in the fixed order used everywhere else (scratch CNN, ResNet-50, ViT-Small ...).
+        for model in MODELS:
+            # RGB before 13 bands, as in the other tables.
+            for modality in ("rgb", "ms"):
+                # All runs of this combination, over every seed and fraction.
+                combo = runs[(runs["variant"] == variant) & (runs["model"] == model) & (runs["modality"] == modality)]
+                # A combination that was never run gets no row.
+                if combo.empty:
+                    continue
+                # Row label columns: readable model name, input and training type.
+                row = {"Model": MODEL_LABEL[model], "Input": MODALITY_LABEL[modality], "Training": VARIANT[variant]}
+                # One cell per label fraction: mean ± std of the test ECE over the seeds, '(n=1)' for one seed.
+                for fraction in fractions:
+                    # np.isclose compares the floats safely (0.1 might be stored as 0.10000000001).
+                    cell = combo[np.isclose(combo["fraction"], fraction)]
+                    row[_frac(fraction)] = _pm(cell["test_ece"].mean(), cell["test_ece"].std(ddof=1)) if len(cell) else "-"
+                rows.append(row)
+    # Return a table if anything was collected, otherwise None so the caller can skip it.
+    return pd.DataFrame(rows) if rows else None
+
+
 # Q: What does main do?
-#    A: It loads runs_from_logs.csv, builds the five tables with their LaTeX captions and sizes, and writes each one as
-#       .md and .tex, printing how many rows were written.
+#    A: It loads runs_from_logs.csv, builds the six tables with their LaTeX captions and sizes, and writes each one as
+#       .md and .tex, printing how many rows were written. The calibration table reads per_run.csv from --eval.
 # Q: Why are some tables skipped?
 #    A: A table that is None or empty (for example model_comparison when no compare_*.csv exists) is reported as
 #       'skipped' instead of crashing the script. The sweep table is only attempted if tuning_from_logs.csv exists.
@@ -317,7 +375,7 @@ def model_comparison(eval_dir: Path) -> pd.DataFrame | None:
 #    A: They are written into the code (for example 'All 51 finished runs'), so they must be updated if the number of
 #       runs changes.
 def main() -> None:
-    """Write the five tables."""
+    """Write the six tables."""
     # Build the command-line parser; its description is the first line of this file's docstring.
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     # Option: folder with runs_from_logs.csv and tuning_from_logs.csv.
@@ -347,6 +405,12 @@ def main() -> None:
     # The model-against-model table is built from the comparison summaries.
     made.append(("model_comparison", model_comparison(args.eval), "Differences in test macro-F1 between models, supervised runs, "
                  "matched on seed (second model minus first).", True, r"\small"))
+    # The calibration table comes from the saved-prediction evaluation (column test_ece of per_run.csv). It has six
+    # columns (model, input, training type and three label fractions), too wide for one column of the two-column
+    # layout, so it spans both columns (wide=True, a table* in LaTeX).
+    made.append(("calibration", calibration(args.eval), "Expected calibration error (ECE, \\%, 15 bins) on the test set, "
+                 "mean $\\pm$ std over seeds; (n=1) is one seed and $-$ means no run. Lower is better. Every run with saved "
+                 "predictions is included.", True, r"\small"))
     # Write each table, skipping the ones without data.
     for name, df, caption, wide, font in made:
         # A None or empty table means its input was missing, so report it and move on.

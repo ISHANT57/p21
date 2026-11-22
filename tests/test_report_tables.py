@@ -12,7 +12,7 @@ import pandas as pd
 # ====================================================================================================
 # CONCEPTS USED IN THIS FILE (study notes)
 # ====================================================================================================
-# - unit test: a check of one function on small made-up input. All four tests here are unit tests of functions in
+# - unit test: a check of one function on small made-up input. All five tests here are unit tests of functions in
 #     scripts/make_report_tables.py (loaded below as the module `mrt`).
 # - assert: a statement that must be true; if false, pytest marks the test as FAILED.
 # - synthetic / fake runs table: _runs() builds a three-row pandas DataFrame shaped like
@@ -145,3 +145,34 @@ def test_pm_never_invents_a_spread_for_one_seed():
     assert mrt._pm(0.8, np.nan, sign=True) == "+80.0 (n=1)"
     # With a real std the cell shows "mean ± std" in percent.
     assert mrt._pm(0.8, 0.01) == "80.0 ± 1.0"
+
+
+# Q: What does this test check?
+# A: calibration() turns a per_run.csv into the calibration table: the supervised cell for 1% labels is the mean ± std of
+#    the two seeds' ECE ('5.0 ± 1.4' from 4% and 6%), the one-seed 100% cell says '(n=1)', the pseudo-label student
+#    gets its own row with its own value ('50.0 (n=1)') and '-' where it has no run, and a missing file gives None.
+# Q: What bug would make it fail?
+# A: Mixing the student into the supervised average (the student's ECE of 50% would change the 5.0), printing a made-up
+#    spread for one seed, or crashing instead of returning None when the evaluation has not been run.
+# Q: Why is the data written to a temporary folder?
+# A: calibration() reads a file (results/summary/eval/per_run.csv), so the test writes a small fake one into pytest's
+#    tmp_path folder, which is deleted afterwards; no real results are needed.
+def test_calibration_averages_ece_per_cell_and_keeps_students_apart(tmp_path):
+    """The calibration table must average the ECE over seeds per cell and keep pseudo-label students in their own rows."""
+    # Fake per_run.csv (test_ece is a 0-1 value): ResNet-50 RGB supervised at 1% with two seeds (ECE 4% and 6%), at 100%
+    # with one seed (1%), and one pseudo-label student at 1% with a very different ECE (50%) to expose any mixing.
+    fake = pd.DataFrame([
+        dict(model="resnet50", modality="rgb", fraction=0.01, variant="supervised", seed=0, test_ece=0.04),
+        dict(model="resnet50", modality="rgb", fraction=0.01, variant="supervised", seed=1, test_ece=0.06),
+        dict(model="resnet50", modality="rgb", fraction=1.0, variant="supervised", seed=0, test_ece=0.01),
+        dict(model="resnet50", modality="rgb", fraction=0.01, variant="pl", seed=0, test_ece=0.50)])
+    fake.to_csv(tmp_path / "per_run.csv", index=False)
+    t = mrt.calibration(tmp_path)
+    # Two rows: the supervised ResNet-50 RGB row first, then its pseudo-label student; the label fractions become columns.
+    assert list(t["Training"]) == ["supervised", "pseudo-label"] and list(t.columns[-2:]) == ["1%", "100%"]
+    # Supervised row: mean of 4% and 6% is 5.0, the standard deviation over the two seeds is 1.4; one seed is marked.
+    assert t.loc[0, "1%"] == "5.0 ± 1.4" and t.loc[0, "100%"] == "1.0 (n=1)"
+    # Student row: its own 50% (not averaged into the supervised cell), and '-' where it was never trained (100%).
+    assert t.loc[1, "1%"] == "50.0 (n=1)" and t.loc[1, "100%"] == "-"
+    # Without an evaluation folder there is nothing to show, so the function returns None instead of failing.
+    assert mrt.calibration(tmp_path / "missing") is None
