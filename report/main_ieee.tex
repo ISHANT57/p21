@@ -276,6 +276,13 @@ With 10\% of the labels (Fig.~\ref{fig:confusion10}, Table~\ref{tab:per_class_f1
 \end{figure*}
 \input{\tabdir/per_class_f1_10pct.tex}
 
+% Calibration (issue #41): the table comes from results/summary/eval/per_run.csv (column test_ece) through
+% scripts/make_report_tables.py. The numbers quoted below are read from that table.
+\subsection{Calibration}\label{sec:calibration}
+Table~ef{tab:calibration} gives the expected calibration error (ECE) of every run with saved predictions: the gap between the confidence of a prediction and how often it is right, averaged over 15 confidence bins. With 1\% of the labels the scratch CNN is badly calibrated (ECE 18.1\% on RGB and 16.2\% on 13 bands) and the pretrained models much less so (3.9--6.6\%), while with all labels every model is below 1\% (one seed), so pretraining also gives more trustworthy confidences, which matters for pseudo-labelling because it relies on them.
+
+\input{	abdir/calibration.tex}
+
 \section{Discussion}\label{sec:discussion}
 \subsection{Answers to the three questions}
 \emph{How much does accuracy fall with fewer labels?} Little for pretrained models and a lot for a model trained from scratch: from 100\% to 1\% of the labels, the pretrained models lose 8--10 macro-F1 points and the scratch CNN 21--23; at 10\% the pretrained models are within 1.3--2.2 points of their 100\% score and the scratch CNN on RGB is 5.7 points below.
