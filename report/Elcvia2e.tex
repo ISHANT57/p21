@@ -279,6 +279,14 @@ At 1\% of the labels, the largest confusions of ViT-Small are among vegetation c
 With 10\% of the labels the picture changes. Every class of ViT-Small reaches at least 94.5\% F1, and the River gain from 13 bands has disappeared (97.9\% with both inputs), so it may have been a small-sample effect. The largest remaining confusions are AnnualCrop predicted as PermanentCrop (2.1--2.8\%) and PermanentCrop predicted as HerbaceousVegetation (1.4\% on 13 bands, 2.8\% on RGB). PermanentCrop is the class with the lowest F1 on RGB (94.5\%) and gains 1.2 points on 13 bands, SeaLake gains 1.0 point (98.6 to 99.6\%), and Pasture loses 1.1 points. These per-class differences are small compared with their standard deviations over three seeds, so we do not interpret them one by one.
 
 
+% Calibration (issue #41): the table comes from results/summary/eval/per_run.csv (column test_ece) through
+% scripts/make_report_tables.py. The numbers quoted below are read from that table.
+\subsection{Calibration}\label{sec:calibration}
+Table~
+ef{tab:calibration} gives the expected calibration error (ECE) of every run with saved predictions: the gap between the confidence of a prediction and how often it is right, averaged over 15 confidence bins. With 1\% of the labels the scratch CNN is badly calibrated (ECE 18.1\% on RGB and 16.2\% on 13 bands) and the pretrained models much less so (3.9--6.6\%), while with all labels every model is below 1\% (one seed), so pretraining also gives more trustworthy confidences, which matters for pseudo-labelling because it relies on them.
+
+\input{	abdir/calibration.tex}
+
 \section{Discussion}\label{sec:discussion}
 The results suggest four rules for a similar problem. First, when only a few hundred labels are available, start from a pretrained model: the gap to a model trained from scratch is 11--16 points at 1\% of the labels, and the pretrained transformer was the best choice at 1\% and 10\%. Second, when the labelled set is large, the choice of model matters little (all models are within 1.6 points at 100\%), so cost can decide: the scratch CNN trains in 22 minutes against 42 for ResNet-50. Third, use the extra bands if the model is trained from scratch, where they gave 3.5--4.2 points, but do not expect more than one point for a pretrained RGB network without a better first-layer initialisation (and for ResNet-50 even that point is explained by the input source, Section~\ref{sec:crosscheck}). Fourth, pseudo-labelling is worth its roughly 1.5-fold training cost at 1\% of the labels, where it lifted ResNet-50 to the level of the supervised ViT-Small, and not at 10\%, where the teacher is already accurate on almost the whole pool.
 
