@@ -20,10 +20,12 @@
 \newcommand{\figdir}{../results/figures}
 \newcommand{\tabdir}{../results/tables}
 
-% Running head: page 1 carries the journal name only; later pages carry only the page number on the outer edge
-% (left on even pages, right on odd pages), as in the template.
+% Running head as in the template: page 1 carries the journal name only; later pages carry
+% "author et al. / journal volume(number):pages, year" with the page number on the outer edge
+% (left on even pages, right on odd pages).
 \pagestyle{fancy}
 \fancyhf{}
+\fancyhead[CE,CO]{\small\itshape Bhoyar et al. / Electronic Letters on Computer Vision and Image Analysis 0(0):1--12, 2026}
 \fancyhead[LE,RO]{\small\thepage}
 \renewcommand{\headrulewidth}{0pt}
 \fancypagestyle{plain}{\fancyhf{}\fancyhead[C]{\small\itshape Electronic Letters on Computer Vision and Image Analysis}%
@@ -57,7 +59,14 @@ RGB versus 13-Band Input, Supervised versus Pseudo-Labelled Training\par}
 \vspace{9pt}
 {\small\itshape $^{*}$ Deep Learning, Sitare University (enrolment nos.\ 202410101200059, 202410101200047,
 202410101200060 and 202410101200028)\par}
+\vspace{6pt}
+{\small Received 22 November 2026\par}
 \end{center}
+% Journal information at the bottom of page 1, as in the template (no e-mail and no editor name are given).
+\begingroup\renewcommand{\thefootnote}{}%
+\footnotetext{ELCVIA ISSN:1577-5097\\
+Published by Computer Vision Center / Universitat Aut\`onoma de Barcelona, Barcelona, Spain}%
+\endgroup
 \vspace{8pt}
 \noindent\rule{\textwidth}{0.4pt}
 \vspace{4pt}
