@@ -33,3 +33,19 @@ cd report && latexmk -pdf main.tex
 `references.bib` holds the references (`Elcvia2e.tex` has them converted to the template's `thebibliography` list).
 The numbers in the text were checked against `results/summary` and `results/tables`; if the results change, recheck
 them by hand.
+
+## Rebuilding the versions
+
+`main_ieee.tex` is the source of truth for the text. The other two versions are generated from it by the scripts in
+`report/tools/` (run them from the repository root):
+
+```bash
+python report/tools/make_single_column.py                  # main_ieee.tex -> main.tex (stand-alone, 12-page layout)
+python report/tools/make_template_version.py               # main.tex -> Elcvia2e.tex (the instructor's template)
+python report/tools/build_template_upload.py <folder>      # folder + zip to upload into the template project on Overleaf
+python report/tools/build_standalone_zip.py <file.zip>     # zip of the stand-alone version
+```
+
+Edit `main_ieee.tex` (and, for a new figure or table, the files in `results/`), then run the scripts again; do not edit
+`main.tex` or `Elcvia2e.tex` by hand, because they are overwritten. The scripts check that every reference and
+citation resolves; they cannot compile LaTeX, so compile on Overleaf and read the page count there.
