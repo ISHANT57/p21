@@ -170,6 +170,8 @@ body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/label_efficiency_f1\.png\}", r"
 body = sub1(r"width=\\columnwidth\]\{\\figdir/rgb_vs_ms_gain\.png\}", r"width=0.60\textwidth]{\figdir/rgb_vs_ms_gain.png}", body)
 body = sub1(r"width=\\columnwidth\]\{\\figdir/pseudo_label_gain\.png\}", r"width=0.72\textwidth]{\figdir/pseudo_label_gain.png}", body)
 body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/confusion_1pct\.png\}", r"width=0.90\textwidth]{\figdir/confusion_1pct.png}", body)
+body = sub1(r"width=0\.82\\columnwidth\]\{\\figdir/dataset_samples\.png\}", r"width=0.40\textwidth]{\figdir/dataset_samples.png}", body)
+body = sub1(r"width=\\columnwidth\]\{\\figdir/dataset_spectral\.png\}", r"width=0.72\textwidth]{\figdir/dataset_spectral.png}", body)
 
 body = body.replace("Fig.~\\ref", "Figure~\\ref")
 

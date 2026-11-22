@@ -50,3 +50,4 @@ vit_small_rgb_10pct_seed0,vit_small,rgb,0.1,0,supervised,0.9773,0.9765,0.9775,0.
 vit_small_rgb_10pct_seed1,vit_small,rgb,0.1,1,supervised,0.9793,0.9789,0.9748,0.9741,25,6.7,lane_B_vit_small (1).ipynb,,,,,
 vit_small_rgb_10pct_seed2,vit_small,rgb,0.1,2,supervised,0.9753,0.9748,0.9728,0.9721,19,6.5,lane_B_vit_small (1).ipynb,,,,,
 vit_small_rgb_100pct_seed0,vit_small,rgb,1.0,0,supervised,0.9916,0.9913,0.9879,0.9876,21,32.3,lane_C_scratch_and_vit100.ipynb,,,,,
+scratch_cnn_rgb_10pct_seed0_pl,scratch_cnn,rgb,0.1,0,pl,0.9237,0.9224,0.9158,0.9153,19,9.0,run folder (metrics.json); the lane C log ends after the pseudo-labelling line,scratch_cnn_rgb_10pct_seed0,0.65,0.951,16184.0,17009.0

@@ -13,12 +13,12 @@ Plan and done criteria for each phase: [phases.md](phases.md). Current progress,
 
 ## Results (final)
 
-Training is finished: 51 runs (42 supervised, 9 pseudo-label students). Test macro-F1 in percent, mean ± std over seeds (`(n=1)` is one seed, so no spread):
+Training is finished: 52 runs (42 supervised, 10 pseudo-label students). Test macro-F1 in percent, mean ± std over seeds (`(n=1)` is one seed, so no spread):
 
 | | 1% labels | 10% labels | 100% labels |
 |---|---|---|---|
 | Scratch CNN, RGB | 74.6 ± 1.0 | 91.8 ± 0.3 | 97.5 (n=1) |
-| Scratch CNN, 13 bands | 78.1 ± 0.7 | 95.9 ± 0.2 | 98.8 (n=1) |
+| Scratch CNN, 13 bands | 78.1 ± 0.7 | 95.9 ± 0.2 | 98.7 (n=1) |
 | ResNet-50, RGB | 88.5 ± 0.0 | 96.4 ± 0.3 | 98.6 (n=1) |
 | ResNet-50, 13 bands | 89.4 ± 0.6 | 97.3 ± 0.4 | 99.1 (n=1) |
 | ViT-Small, RGB | 90.7 ± 1.0 | 97.4 ± 0.2 | 98.8 (n=1) |
@@ -26,8 +26,8 @@ Training is finished: 51 runs (42 supervised, 9 pseudo-label students). Test mac
 
 - **Fewer labels:** the pretrained models lose 8 to 10 points from 100% to 1% of the labels, the scratch CNN 21 to 23.
 - **Extra bands:** +3.5 to +4.2 points for the scratch CNN, about +0.9 for ResNet-50, 0.5 or less for ViT-Small (at 1% within the spread between seeds).
-- **Pseudo-labelling (ResNet-50):** +2.3 to +2.4 points at 1% labels, +0.2 at 10% (two seeds). It is not done for ViT-Small, and only one scratch CNN student finished.
-- **Limits:** the Colab lanes kept only their logs, so there are no bootstrap intervals (except ViT-Small RGB vs 13 bands), no calibration, and per-class results exist only for ViT-Small at 1% and 10% labels. See [docs/EVALUATION.md](docs/EVALUATION.md) ("Results taken from logs"). Figures: `results/figures/`, tables: `results/tables/`, the evidence lines from every notebook: `results/logs/`. The report is in `report/`.
+- **Pseudo-labelling (ResNet-50):** +2.3 to +2.4 points at 1% labels, +0.2 at 10% (two seeds). It is not done for ViT-Small; two scratch CNN students finished (+1.8 at 1%, -0.5 at 10%, one seed each).
+- **Limits:** the 100% cells have one seed and most students have one or two seeds. Every run saved its predictions, so all scores, bootstrap intervals, calibration (ECE) and per-class results are computed from them by `scripts/evaluate.py` (see [docs/EVALUATION.md](docs/EVALUATION.md)). Figures: `results/figures/`, tables: `results/tables/`, the notebook evidence lines: `results/logs/`. The report is in `report/`.
 
 ## Experiment design
 
@@ -146,8 +146,8 @@ python scripts/run_grid.py --plan pl                            # pseudo-label s
 python scripts/collect_results.py                               # tables in results/summary/
 python scripts/evaluate.py --examples resnet50_ms_1pct_seed0    # Phase 6: all metrics, comparisons, error grid
 python scripts/make_figures.py                                  # Phase 7: results/figures/*.png, results/tables/*.tex
-# Final results of this project come from the Colab logs (see docs/EVALUATION.md, 'Results taken from logs'):
-#   python scripts/parse_colab_logs.py <notebooks...>; python scripts/eval_from_logs.py; python scripts/make_figures.py --fraction 0.01
+# Final results: all 52 run folders evaluated from their saved predictions (see docs/EVALUATION.md, 'Final results'):
+#   python scripts/evaluate.py; python scripts/make_figures.py --fraction 0.01; python scripts/make_report_tables.py
 ```
 
 Outputs go to `results/runs/<model>_<input>_<pct>pct_seed<s>/`. Pseudo-labelling is described in [docs/SSL.md](docs/SSL.md). See [docs/MODELS.md](docs/MODELS.md) for the models, how the first layer is set up for 13 bands, and the training details.

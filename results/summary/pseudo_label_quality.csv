@@ -1,0 +1,11 @@
+run_name,n_pseudo,pseudo_label_accuracy,tau,val_precision_at_tau,n_pool
+resnet50_ms_10pct_seed0_pl,16964,0.9739,0.5,0.9787,17009
+resnet50_ms_10pct_seed1_pl,16980,0.976,0.5,0.9822,17009
+resnet50_ms_1pct_seed0_pl,17109,0.9451,0.87,0.95,18708
+resnet50_ms_1pct_seed1_pl,16635,0.9544,0.94,0.9522,18708
+resnet50_rgb_10pct_seed0_pl,16952,0.9676,0.5,0.9688,17009
+resnet50_rgb_10pct_seed1_pl,16964,0.9709,0.5,0.9706,17009
+resnet50_rgb_1pct_seed0_pl,15935,0.9543,0.89,0.9501,18708
+resnet50_rgb_1pct_seed1_pl,16382,0.9544,0.9,0.951,18708
+scratch_cnn_rgb_10pct_seed0_pl,16184,0.9472,0.65,0.9513,17009
+scratch_cnn_rgb_1pct_seed0_pl,12054,0.8989,0.99,0.8931,18708
