@@ -56,3 +56,13 @@ def test_band_control_separates_input_source_from_extra_bands():
 
 def test_diff_never_prints_negative_zero():
     assert cc._diff(-0.04) == "+0.0" and cc._diff(0.96) == "+1.0" and cc._diff(-0.26) == "-0.3"
+
+
+def test_band_ablation_table_has_one_row_per_input_and_one_column_per_fraction():
+    # fake summary of the other pipeline's ablation: every input at every fraction, accuracy = 90 + row index
+    keys = list(cc.ABLATION_ROWS)
+    ablation = pd.DataFrame([dict(input=k, frac=f, mean_acc=90.0 + i, std_acc=0.5, n=3)
+                             for i, k in enumerate(keys) for f in cc.FRACTIONS])
+    t = cc.band_ablation_table(ablation)
+    assert len(t) == len(keys) and list(t.columns) == ["Input bands", "1\%", "10\%", "100\%"]
+    assert t.iloc[0]["1\%"] == "90.0 ± 0.5" and t.iloc[-1]["100\%"] == "94.0 ± 0.5"

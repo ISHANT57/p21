@@ -40,6 +40,10 @@ MODEL_PAIRS = [("cnn", "scratch", "scratch_cnn", "Scratch CNN"), ("resnet50", "i
                ("vit_s", "imagenet", "vit_small", "ViT-Small (ImageNet)")]
 FRACTIONS = (0.01, 0.1, 1.0)
 LABEL = {0.01: "1\\%", 0.1: "10\\%", 1.0: "100\\%"}
+# the other pipeline's band-ablation inputs (all taken from the 13-band files) and how the report names them
+ABLATION_ROWS = {"rgb_ms": "RGB (from the GeoTIFF files)", "rgb+nir": "+ near-infrared (B08)",
+                 "rgb+nir+rededge": "+ B08 + red-edge (B05--B07, B8A)", "rgb+nir+swir": "+ B08 + SWIR (B11, B12)",
+                 "all13": "All 13 bands"}
 
 
 def _diff(x: float) -> str:
@@ -58,6 +62,11 @@ def summarise_other(repo: Path, out: Path, commit: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
     summary.to_csv(out / "other_pipeline_rgb_summary.csv", index=False)
     control.to_csv(out / "other_pipeline_band_control.csv", index=False)
+    # the band ablation: corrected band groups only (runs_ms_c and runs_ms_d hold the groups re-run after the band-order fix)
+    abl = pd.concat([pd.read_csv(repo / f"results/runs_ms_{k}.csv") for k in "abcd"])
+    abl = abl[abl["frac"].isin(FRACTIONS) & abl["input"].isin(list(ABLATION_ROWS))].assign(acc=lambda d: d.test_acc * 100)
+    abl.groupby(["input", "frac"]).acc.agg(mean_acc="mean", std_acc="std", n="count").reset_index().to_csv(
+        out / "other_pipeline_band_ablation.csv", index=False)
     (out / "SOURCE.md").write_text(
         "# Source of the other pipeline's numbers\n\n"
         "Summaries of results/runs_rgb.csv and results/runs_ms_a.csv / runs_ms_b.csv of the repository\n"
@@ -96,6 +105,18 @@ def band_control_table(control: pd.DataFrame, summary: pd.DataFrame, ours: pd.Da
     return pd.DataFrame(rows)
 
 
+def band_ablation_table(ablation: pd.DataFrame) -> pd.DataFrame:
+    """The other pipeline's band ablation: rows = input bands, columns = label fractions, cells = mean ± std accuracy (%)."""
+    rows = []
+    for key, label in ABLATION_ROWS.items():
+        row = {"Input bands": label}
+        for f in FRACTIONS:
+            r = ablation[(ablation["input"] == key) & (ablation["frac"] == f)].iloc[0]
+            row[LABEL[f]] = f"{r.mean_acc:.1f} ± {r.std_acc:.1f}"
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     """Optionally summarise the other repository, then write the two comparison tables."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -118,6 +139,11 @@ def main() -> None:
     tab.write_table(t2, args.tables, "band_control",
                     "ResNet-50 (ImageNet): the effect of the input source and of the extra bands, in accuracy points. "
                     "``Other'' is the teammate's pipeline, which also trained on RGB cut from the 13-band files.")
+    t3 = band_ablation_table(pd.read_csv(args.out / "other_pipeline_band_ablation.csv"))
+    tab.write_table(t3, args.tables, "band_ablation",
+                    "Band ablation by a teammate (his pipeline): ResNet-50 (ImageNet) test accuracy (\\%), mean $\\pm$ std over "
+                    "3 seeds. Every input is taken from the 13-band files.")
+    print(t3.to_string(index=False))
     print(t1.to_string(index=False))
     print(t2.to_string(index=False))
 
