@@ -15,7 +15,6 @@ Writes, each as <name>.md and <name>.tex in --out:
     training_cost     mean time and best epoch per model and label fraction (supervised runs)
     lr_sweep          the learning-rate sweep (validation scores only)
     model_comparison  scratch CNN -> ResNet-50 -> ViT-Small, matched on seed (supervised runs)
-    calibration       mean test ECE per model, input and label fraction (supervised runs, from per_run.csv)
 
 Design decisions:
 - Scores are shown in percent with one decimal, as in the main tables; a cell with one seed shows
@@ -308,50 +307,8 @@ def model_comparison(eval_dir: Path) -> pd.DataFrame | None:
     return pd.DataFrame(rows) if rows else None
 
 
-# Q: What does this function do?
-#    A: It builds the calibration table: for every model and input, the mean test expected calibration error (ECE, in
-#       percent) over seeds at 1%, 10% and 100% of the labels, supervised runs only.
-# Q: What is the ECE?
-#    A: Predictions are sorted into 15 confidence bins; in each bin the gap between the average confidence and the
-#       accuracy is taken, and the gaps are averaged weighted by bin size. 0 means 'a prediction made with 80% confidence
-#       is right 80% of the time'; a large value means the model is over- or under-confident.
-# Q: Why is this read from per_run.csv and not from the logs?
-#    A: The ECE needs the predicted probabilities, so it exists only for runs with saved predictions; evaluate.py computes
-#       it into results/summary/eval/per_run.csv (column test_ece).
-# Q: What if the file does not exist?
-#    A: The function returns None and main() skips the table.
-def calibration(eval_dir: Path) -> pd.DataFrame | None:
-    """Mean test ECE (percent) of the supervised runs: rows = model and input, columns = label fractions.
-
-    Args:
-        eval_dir: folder with per_run.csv written by scripts/evaluate.py.
-    Returns:
-        A table of display strings, or None if per_run.csv does not exist.
-    """
-    # Where the per-run evaluation table should be; without it there is no calibration to show.
-    f = eval_dir / "per_run.csv"
-    if not f.exists():
-        return None
-    # Supervised runs only: the students are discussed in the text, and every cell keeps one meaning.
-    d = pd.read_csv(f)
-    d = d[d["variant"] == "supervised"]
-    # One output row per (model, input), in the fixed model order of the figures (RGB before 13 bands).
-    rows = []
-    for model in MODELS:
-        for modality in ("rgb", "ms"):
-            row = {"Model": f"{MODEL_LABEL[model]}, {MODALITY_LABEL[modality]}"}
-            # One cell per label fraction: mean ± std of the test ECE over seeds, or '(n=1)' for a single seed.
-            for fraction in (0.01, 0.1, 1.0):
-                sel = d[(d["model"] == model) & (d["modality"] == modality) & ((d["fraction"] - fraction).abs() < 1e-9)]
-                row[_frac(fraction)] = _pm(sel["test_ece"].mean(), sel["test_ece"].std(ddof=1)) if len(sel) else "-"
-            # A model that has no run at all (the figures also list models that were never trained) gets no row.
-            if any(row[_frac(f)] != "-" for f in (0.01, 0.1, 1.0)):
-                rows.append(row)
-    return pd.DataFrame(rows)
-
-
 # Q: What does main do?
-#    A: It loads runs_from_logs.csv, builds the six tables with their LaTeX captions and sizes, and writes each one as
+#    A: It loads runs_from_logs.csv, builds the five tables with their LaTeX captions and sizes, and writes each one as
 #       .md and .tex, printing how many rows were written.
 # Q: Why are some tables skipped?
 #    A: A table that is None or empty (for example model_comparison when no compare_*.csv exists) is reported as
@@ -390,9 +347,6 @@ def main() -> None:
     # The model-against-model table is built from the comparison summaries.
     made.append(("model_comparison", model_comparison(args.eval), "Differences in test macro-F1 between models, supervised runs, "
                  "matched on seed (second model minus first).", True, r"\small"))
-    # The calibration table comes from the saved-prediction evaluation (ECE in per_run.csv).
-    made.append(("calibration", calibration(args.eval), "Expected calibration error (ECE, \\%, 15 bins) on the test set of the "
-                 "supervised runs, mean $\\pm$ std over seeds; lower is better.", False, r"\small"))
     # Write each table, skipping the ones without data.
     for name, df, caption, wide, font in made:
         # A None or empty table means its input was missing, so report it and move on.

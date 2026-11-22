@@ -132,30 +132,6 @@ def test_training_cost_means_per_model_and_fraction():
 
 
 # Q: What does this test check?
-# A: calibration averages the test ECE of the seeds per model, input and label fraction (supervised runs only), shows
-#    '(n=1)' for a single seed, '-' where no run exists, and returns None when per_run.csv is missing.
-# Q: Why does it matter?
-# A: The calibration table goes straight into the report; a student run mixed into a supervised cell, or a spread
-#    invented for one seed, would give a wrong number.
-def test_calibration_averages_supervised_ece_per_cell(tmp_path):
-    """The calibration table must average the supervised ECE over seeds and leave out the students."""
-    # Fake per_run.csv: ResNet-50 RGB at 1% with two seeds (ECE 4% and 6%), at 100% with one seed (1%), and a student.
-    rows = [dict(model="resnet50", modality="rgb", fraction=0.01, variant="supervised", seed=0, test_ece=0.04),
-            dict(model="resnet50", modality="rgb", fraction=0.01, variant="supervised", seed=1, test_ece=0.06),
-            dict(model="resnet50", modality="rgb", fraction=1.0, variant="supervised", seed=0, test_ece=0.01),
-            dict(model="resnet50", modality="rgb", fraction=0.01, variant="pl", seed=0, test_ece=0.50)]
-    pd.DataFrame(rows).to_csv(tmp_path / "per_run.csv", index=False)
-    t = mrt.calibration(tmp_path)
-    r = t[t["Model"].str.startswith("ResNet-50") & t["Model"].str.contains("RGB")].iloc[0]
-    # mean of 4% and 6% is 5.0 with sample std 1.4; the student (50%) is not in the cell.
-    assert r["1%"] == "5.0 ± 1.4"
-    # one seed -> '(n=1)'; no 10% run at all -> '-'.
-    assert r["100%"] == "1.0 (n=1)" and r["10%"] == "-"
-    # Without per_run.csv there is no table.
-    assert mrt.calibration(tmp_path / "missing") is None
-
-
-# Q: What does this test check?
 # A: _pm(0.8, NaN, sign=True) gives '+80.0 (n=1)' and _pm(0.8, 0.01) gives '80.0 ± 1.0'.
 # Q: Why does it matter?
 # A: With a single seed no spread was measured. Printing '± 0.0' would wrongly suggest that seeds agreed exactly;
