@@ -62,7 +62,7 @@ The rest of the report is organised as follows. Section~\ref{sec:related} places
 \textbf{Semi-supervised learning.} Pseudo-labelling~\cite{lee2013pseudo} trains a model on its own confident predictions for unlabelled images. Self-training with a noisy student~\cite{xie2020noisystudent} trains an equal or larger student, with added noise, on the labelled data plus the teacher's labels. MixMatch~\cite{berthelot2019mixmatch} and FixMatch~\cite{sohn2020fixmatch} add consistency losses between differently augmented views of each unlabelled image. Oliver et al.~\cite{oliver2018realistic} stress that semi-supervised methods must be compared with a well-tuned supervised baseline on the same budget, and Arazo et al.~\cite{arazo2020confirmation} show that wrong pseudo-labels can reinforce themselves (confirmation bias). We use the simple pseudo-labelling form, a strict choice of the threshold on validation data only, and a comparison of every student with its own teacher; consistency methods are left as future work.
 
 \section{Data and Splits}\label{sec:data}
-EuroSAT has 27{,}000 patches of $64\times64$ pixels in 10 classes, with 2{,}000 to 3{,}000 images per class (Table~\ref{tab:classes}). We use two versions of it: an RGB version (8-bit JPEG renderings of bands B04, B03, B02) and a 13-band version (16-bit GeoTIFF). Both contain exactly the same patch identifiers, so one split serves both inputs and an RGB model and a 13-band model are always trained and tested on the same scenes. Figure~\ref{fig:samples} shows example patches, and Fig.~\ref{fig:spectral} the mean spectrum of each class: the vegetation classes stand out in the red-edge and near-infrared bands (B05--B08), which RGB does not contain.
+EuroSAT has 27{,}000 patches of $64\times64$ pixels in 10 classes, with 2{,}000 to 3{,}000 images per class (Table~\ref{tab:classes}). We use two versions of it: an RGB version (8-bit JPEG renderings of bands B04, B03, B02) and a 13-band version (16-bit GeoTIFF). Both contain exactly the same patch identifiers, so one split serves both inputs and an RGB model and a 13-band model are always trained and tested on the same scenes. Figure~\ref{fig:samples} shows example patches (left) and the mean spectrum of each class (right): the vegetation classes stand out in the red-edge and near-infrared bands (B05--B08), which RGB does not contain.
 
 \begin{table}[t]
 \centering
@@ -89,19 +89,19 @@ Total & 18{,}899 & 4{,}051 & 4{,}050 & 27{,}000 \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=0.82\columnwidth]{\figdir/dataset_samples.png}
-\caption{Eight random training patches of each class (RGB; exploratory analysis by Ayush Kumar). Water and forest patches are dark and uniform; the crop and vegetation classes look alike, which foreshadows their confusions.}
+\begin{minipage}[b]{0.30\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/dataset_samples.png}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.66\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/dataset_spectral.png}
+\end{minipage}
+\caption{Exploratory analysis of the data (by Ayush Kumar). Left: eight random RGB training patches per class, one row per class in the order of Table~\ref{tab:classes}; water and forest patches are dark and uniform, while the crop and vegetation classes look alike. Right: mean pixel value of each class in the 13 bands, in the storage order of the GeoTIFF files, in which the narrow near-infrared band B8A comes last, not between B08 and B09. SeaLake stays below about 500 from B04 on; vegetation classes rise sharply from B05 to B08 (red edge and near-infrared); B10 (cirrus) is close to zero for every class.}
 \label{fig:samples}
-\end{figure}
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{\figdir/dataset_spectral.png}
-\caption{Mean pixel value of each class in the 13 bands, in the storage order of the GeoTIFF files, in which the narrow near-infrared band B8A comes last, not between B08 and B09. SeaLake stays below about 500 from B04 on; vegetation classes rise sharply from B05 to B08 (red edge and near-infrared); B10 (cirrus) is close to zero for every class.}
-\label{fig:spectral}
-\end{figure}
+\end{figure*}
 
 \textbf{Splits.} We split the data once, stratified by class, with a fixed seed: 70\% train (18{,}899 images), 15\% validation (4{,}051) and 15\% test (4{,}050). The validation and test sets are identical for every model, input type, label fraction and seed. The validation set is used for early stopping, model selection, learning-rate choice and the pseudo-label threshold; the test set is used only to report the final scores.
 
@@ -364,7 +364,7 @@ Table~\ref{tab:design} lists the main choices, why each was made, and the weakne
 \end{table*}
 
 \section{Reproducibility}\label{app:repro}
-The code, the logs of every run and all figures and tables are in the public repository \url{https://github.com/ISHANT57/p21}; the results in this report are the tag \texttt{results-v1}. The code is released under the MIT licence, and automated tests run on every change. Table~\ref{tab:repro} lists the steps, each a script in the \texttt{scripts} folder of the repository.
+The code, the logs of every run and all figures and tables are in the public repository \url{https://github.com/ISHANT57/p21}; the results in this report are the tag \texttt{results-v2}. The code is released under the MIT licence, and automated tests run on every change. Table~\ref{tab:repro} lists the steps, each a script in the \texttt{scripts} folder of the repository.
 
 \begin{table}[t]
 \centering
