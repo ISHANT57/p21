@@ -405,11 +405,12 @@ def main() -> None:
     # The model-against-model table is built from the comparison summaries.
     made.append(("model_comparison", model_comparison(args.eval), "Differences in test macro-F1 between models, supervised runs, "
                  "matched on seed (second model minus first).", True, r"\small"))
-    # The calibration table comes from the saved-prediction evaluation (column test_ece of per_run.csv). It is a narrow
-    # table (three label columns), so it fits one column.
+    # The calibration table comes from the saved-prediction evaluation (column test_ece of per_run.csv). It has six
+    # columns (model, input, training type and three label fractions), too wide for one column of the two-column
+    # layout, so it spans both columns (wide=True, a table* in LaTeX).
     made.append(("calibration", calibration(args.eval), "Expected calibration error (ECE, \\%, 15 bins) on the test set, "
                  "mean $\\pm$ std over seeds; (n=1) is one seed and $-$ means no run. Lower is better. Every run with saved "
-                 "predictions is included.", False, r"\small"))
+                 "predictions is included.", True, r"\small"))
     # Write each table, skipping the ones without data.
     for name, df, caption, wide, font in made:
         # A None or empty table means its input was missing, so report it and move on.
