@@ -59,12 +59,12 @@ What differs from a full evaluation, and has to be said wherever these numbers a
 - **Single-seed cells** (the 100% runs, and the scratch CNN student) are shown as `(n=1)`, with no spread.
 - **Incomplete pseudo-labelling.** Students that had not finished when the sessions ended are not counted: 8 ResNet-50 students (seeds 0 and 1) and 1 scratch CNN student (RGB, 1%, seed 0).
 
-## Cross-check with a teammate's independent pipeline
+## Cross-check with an independent pipeline
 
-A fourth team member, Ayush Kumar, built a separate pipeline for the same task (repository
-`kumarAyush24029/Eurosat-label-efficiency`: 80/10/10 split, six label fractions, three seeds everywhere). `scripts/crosscheck_pipelines.py` compares the two where they overlap:
+A fourth team member, Ayush Kumar, built an independent pipeline for the same task (folder
+[`ayush_pipeline/`](../ayush_pipeline/): 80/10/10 split, six label fractions, three seeds everywhere). `scripts/crosscheck_pipelines.py` compares the two where they overlap:
 
 - RGB (JPEG) test accuracy of the same three models at 1%, 10% and 100% of the labels (`results/tables/crosscheck.md`): the pretrained models agree within 0.6 points and the scratch CNN within 1.0 point.
 - A control for the 13-band comparison (`results/tables/band_control.md`): his pipeline also trained ResNet-50 on the three RGB bands cut from the 13-band GeoTIFF files. At 1% of the labels this input scores 1.0 point above the JPEG RGB, and all 13 bands add -0.2 points on top of it, so our ResNet-50 gain over JPEG RGB (+0.8) is explained by the input source and not by the extra bands.
 
-His summarised numbers are saved in `results/crosscheck/` with the commit they were taken from (`SOURCE.md`). The two protocols are never merged into one table.
+His summarised numbers are saved in `results/crosscheck/` (`SOURCE.md` says which files in `ayush_pipeline/results/` they come from); `python scripts/crosscheck_pipelines.py --other-repo ayush_pipeline` rebuilds them. The two protocols are never merged into one table.

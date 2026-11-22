@@ -1,15 +1,15 @@
-"""Cross-check our pipeline against the independent pipeline of a teammate (Ayush Kumar, a separate repository).
+"""Cross-check our pipeline against the independent pipeline of a teammate (Ayush Kumar, folder ayush_pipeline/).
 
 Two team members built two independent pipelines for the same task (EuroSAT label efficiency). This script
 compares them where they overlap, so that the report can say how far the two agree.
 
 Usage:
-    # first time: summarise the other repository (a local clone) and write the comparison tables
-    python scripts/crosscheck_pipelines.py --other-repo <path to clone> --commit <git commit of the clone>
-    # afterwards (summaries already saved in results/crosscheck/): only rebuild the tables
+    # re-summarise the other pipeline's result tables and write the comparison tables
+    python scripts/crosscheck_pipelines.py --other-repo ayush_pipeline
+    # only rebuild the tables from the summaries already saved in results/crosscheck/
     python scripts/crosscheck_pipelines.py
 
-Reads:   results/logs/runs_from_logs.csv (our runs), and either the other repository's results/runs_*.csv or
+Reads:   results/logs/runs_from_logs.csv (our runs), and either ayush_pipeline/results/runs_*.csv or
          the saved summaries results/crosscheck/other_pipeline_*.csv
 Writes:  results/crosscheck/other_pipeline_rgb_summary.csv, other_pipeline_band_control.csv and SOURCE.md
          (only with --other-repo), results/tables/crosscheck.{md,tex} and band_control.{md,tex}
@@ -51,8 +51,8 @@ def _diff(x: float) -> str:
     return f"{round(float(x), 1) + 0.0:+.1f}"
 
 
-def summarise_other(repo: Path, out: Path, commit: str) -> None:
-    """Condense the other repository's result tables into two small CSV files (and a note on where they come from)."""
+def summarise_other(repo: Path, out: Path) -> None:
+    """Condense the other pipeline's result tables into small CSV files (and a note on where they come from)."""
     rgb = pd.read_csv(repo / "results/runs_rgb.csv")
     rgb = rgb[rgb["frac"].isin(FRACTIONS)].assign(acc=lambda d: d.test_acc * 100)
     summary = rgb.groupby(["model", "init", "frac"]).acc.agg(mean_acc="mean", std_acc="std", n="count").reset_index()
@@ -69,9 +69,9 @@ def summarise_other(repo: Path, out: Path, commit: str) -> None:
         out / "other_pipeline_band_ablation.csv", index=False)
     (out / "SOURCE.md").write_text(
         "# Source of the other pipeline's numbers\n\n"
-        "Summaries of results/runs_rgb.csv and results/runs_ms_a.csv / runs_ms_b.csv of the repository\n"
-        "https://github.com/kumarAyush24029/Eurosat-label-efficiency (author: Ayush Kumar, a member of this team),\n"
-        f"at commit {commit}. His protocol: stratified 80/10/10 split (2,700 test images), 3 seeds, test accuracy.\n"
+        "Summaries of `ayush_pipeline/results/runs_rgb.csv` and `runs_ms_a.csv` to `runs_ms_d.csv` (pipeline by Ayush Kumar,\n"
+        "a member of this team). Rebuild with `python scripts/crosscheck_pipelines.py --other-repo ayush_pipeline`.\n"
+        "His protocol: stratified 80/10/10 split (2,700 test images), 3 seeds, test accuracy.\n"
         "Mean and sample std over the seeds. Not merged with our own results: the protocols differ.\n", encoding="utf-8")
 
 
@@ -118,16 +118,15 @@ def band_ablation_table(ablation: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
-    """Optionally summarise the other repository, then write the two comparison tables."""
+    """Optionally summarise the other pipeline, then write the three comparison tables."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--other-repo", type=Path, default=None, help="local clone of the other repository")
-    ap.add_argument("--commit", default="unknown", help="git commit of that clone (written to SOURCE.md)")
+    ap.add_argument("--other-repo", type=Path, default=None, help="folder of the other pipeline (ayush_pipeline)")
     ap.add_argument("--logs", type=Path, default=Path("results/logs/runs_from_logs.csv"))
     ap.add_argument("--out", type=Path, default=Path("results/crosscheck"))
     ap.add_argument("--tables", type=Path, default=Path("results/tables"))
     args = ap.parse_args()
     if args.other_repo is not None:
-        summarise_other(args.other_repo, args.out, args.commit)
+        summarise_other(args.other_repo, args.out)
     summary = pd.read_csv(args.out / "other_pipeline_rgb_summary.csv")
     control = pd.read_csv(args.out / "other_pipeline_band_control.csv")
     ours = pd.read_csv(args.logs)
@@ -138,10 +137,10 @@ def main() -> None:
     t2 = band_control_table(control, summary, ours)
     tab.write_table(t2, args.tables, "band_control",
                     "ResNet-50 (ImageNet): the effect of the input source and of the extra bands, in accuracy points. "
-                    "``Other'' is the teammate's pipeline, which also trained on RGB cut from the 13-band files.")
+                    "``Other'' is the independent pipeline, which also trained on RGB cut from the 13-band files.")
     t3 = band_ablation_table(pd.read_csv(args.out / "other_pipeline_band_ablation.csv"))
     tab.write_table(t3, args.tables, "band_ablation",
-                    "Band ablation by a teammate (his pipeline): ResNet-50 (ImageNet) test accuracy (\\%), mean $\\pm$ std over "
+                    "Band ablation in the independent pipeline: ResNet-50 (ImageNet) test accuracy (\\%), mean $\\pm$ std over "
                     "3 seeds. Every input is taken from the 13-band files.")
     print(t3.to_string(index=False))
     print(t1.to_string(index=False))
