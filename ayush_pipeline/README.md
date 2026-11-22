@@ -1,7 +1,7 @@
 > **What this folder is.** `ayush_pipeline/` is Ayush's independent pipeline for the P21 label-efficiency
-> study, copied from [kumarAyush24029/Eurosat-label-efficiency](https://github.com/kumarAyush24029/Eurosat-label-efficiency)
-> (tracked files only). It is written separately from the team's `src/eurosat_le` code and is used in the
-> report to cross-check the main results, not as a replacement for them.
+> study. It is written separately from the team's `src/eurosat_le` code and is used in the report to
+> cross-check the main results, not as a replacement for them. The team report is `report/` at the
+> repository root; `report/latex/` here holds this pipeline's own tables, figures and draft.
 >
 > - **Split:** one stratified 80/10/10 split (21,600 train / 2,700 val / 2,700 test), seed 0.
 > - **Label fractions:** 6 (1, 2, 5, 10, 25 and 100 % of the training set), nested and class-balanced.

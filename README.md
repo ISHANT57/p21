@@ -154,6 +154,12 @@ Outputs go to `results/runs/<model>_<input>_<pct>pct_seed<s>/`. Pseudo-labelling
 
 ## Team
 
+- **Ishant Bhoyar** — the main pipeline in `src/eurosat_le/` and `scripts/` (data loading, models, training, pseudo-labelling,
+  evaluation), the results tables and figures, and the report in `report/`.
+- **Gaurav Kumar** — evaluation speed-ups (batched paired bootstrap, predictions read once), progress messages in
+  `scripts/evaluate.py`, regression tests for the evaluation output, and code comments.
+- **Jagriti Pandey** — the figure and table helpers (`metric_columns`, the table-driven `scripts/make_figures.py`),
+  `docs/FIGURES.md`, and the edge-case tests for figures and tables.
 - **Ayush Kumar** — built an independent pipeline in [`ayush_pipeline/`](ayush_pipeline/): a label-efficiency grid
   (4 models, 6 label fractions from 1% to 100%, 3 seeds each), a band-group ablation for the 13 Sentinel-2 bands,
   a calibration analysis (ECE) from saved test logits, and the exploratory data analysis (class counts, sample grid,
