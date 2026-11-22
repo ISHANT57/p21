@@ -88,6 +88,23 @@ Total & 18{,}899 & 4{,}051 & 4{,}050 & 27{,}000 \\
 \end{tabular}
 \end{table}
 
+% Dataset figure (exploratory analysis by Ayush Kumar, issue #38). Two panels side by side in one figure* so
+% that the stand-alone version, which is near its page limit, spends only one float on them. The sample grid
+% is tall and narrow and the spectrum is wide and flat, so widths of 0.30 + 0.66 give similar heights.
+\begin{figure*}[t]
+\centering
+\begin{minipage}[b]{0.30\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/sample_grid.png}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.66\textwidth}
+\centering
+\includegraphics[width=\linewidth]{\figdir/spectral_signatures.png}
+\end{minipage}
+\caption{Dataset overview. Left: eight random RGB training patches per class, in the row order of Table~\ref{tab:classes}. Right: mean pixel value of each class in the 13 bands, in the storage order of the GeoTIFF files, where the narrow near-infrared band B8A comes last.}
+\label{fig:eda}
+\end{figure*}
+
 \textbf{Splits.} We split the data once, stratified by class, with a fixed seed: 70\% train (18{,}899 images), 15\% validation (4{,}051) and 15\% test (4{,}050). The validation and test sets are identical for every model, input type, label fraction and seed. The validation set is used for early stopping, model selection, learning-rate choice and the pseudo-label threshold; the test set is used only to report the final scores.
 
 \textbf{Label fractions.} From the training split we draw labelled subsets of 1\% (191 images), 10\% (1{,}890) and 100\% of the images, each with three seeds. Within a seed the subsets are nested ($1\% \subset 10\% \subset 100\%$), so adding labels never removes examples already in use, and each subset keeps the class proportions. The remaining training images form the \emph{unlabelled pool} used for pseudo-labelling (18{,}708 images at 1\%, 17{,}009 at 10\%); their labels are never read during training. Validation and test images are never used as unlabelled data. Scripts check for overlaps and store hashes of every split file, and training stops if a file has been changed.
