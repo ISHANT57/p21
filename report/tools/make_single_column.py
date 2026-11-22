@@ -139,7 +139,7 @@ body = sub1(r"Table~\\ref\{tab:model_comparison\} compares the models directly, 
 body = drop(r"\\input\{\\tabdir/per_class_f1_1pct\.tex\}\n", body)
 body = sub1(r"\(Table~\\ref\{tab:per_class_f1_1pct\}\)", "(table in the repository)", body)
 body = drop(r"\\input\{\\tabdir/semi_supervised\.tex\}\n", body)
-body = sub1(r"Tables~\\ref\{tab:semi_supervised\} and~\\ref\{tab:pl_details\}", r"Table~\\ref{tab:pl_details}", body)
+body = sub1(r"Tables~\\ref\{tab:semi_supervised\} and~\\ref\{tab:pl_details\}", r"Table~\ref{tab:pl_details}", body)
 body = sub1(r"\(Fig\.~\\ref\{fig:confusion10\}, Table~\\ref\{tab:per_class_f1_10pct\}\) the picture changes", "the picture changes", body)
 body = drop(r"\\input\{\\tabdir/training_cost\.tex\}\n\n", body)
 body = sub1(r"Table~\\ref\{tab:training_cost\} gives the mean time per supervised run\.",
@@ -175,14 +175,16 @@ main_part = sub1(r"\\bibliographystyle\{IEEEtran\}\n\\bibliography\{references\}
 body = main_part + "\n\\end{document}\n"
 
 # --- figure widths for the 17 cm text width -------------------------------------------------------------------------
-body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/label_efficiency_f1\.png\}", r"width=0.78\textwidth]{\figdir/label_efficiency_f1.png}", body)
-body = sub1(r"width=\\columnwidth\]\{\\figdir/rgb_vs_ms_gain\.png\}", r"width=0.52\textwidth]{\figdir/rgb_vs_ms_gain.png}", body)
-body = sub1(r"width=\\columnwidth\]\{\\figdir/pseudo_label_gain\.png\}", r"width=0.62\textwidth]{\figdir/pseudo_label_gain.png}", body)
-body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/confusion_1pct\.png\}", r"width=0.75\textwidth]{\figdir/confusion_1pct.png}", body)
+body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/label_efficiency_f1\.png\}", r"width=0.70\textwidth]{\figdir/label_efficiency_f1.png}", body)
+body = sub1(r"width=\\columnwidth\]\{\\figdir/rgb_vs_ms_gain\.png\}", r"width=0.46\textwidth]{\figdir/rgb_vs_ms_gain.png}", body)
+body = sub1(r"width=\\columnwidth\]\{\\figdir/pseudo_label_gain\.png\}", r"width=0.56\textwidth]{\figdir/pseudo_label_gain.png}", body)
+body = sub1(r"width=0\.85\\textwidth\]\{\\figdir/confusion_1pct\.png\}", r"width=0.64\textwidth]{\figdir/confusion_1pct.png}", body)
 
 body = body.replace("Fig.~\\ref", "Figure~\\ref")
 
 out = head + body
+# the replacement strings of sub1 are literal: a doubled backslash before \ref or \cite means one went wrong
+assert "\\\\ref" not in out and "\\\\cite" not in out, "doubled backslash before \\ref or \\cite"
 for leftover in ("tab:training_cost", "tab:supervised_acc", "tab:models", "tab:lr_sweep", "tab:repro", "tab:per_class_f1_10pct", "fig:confusion10",
                  "tab:model_comparison", "tab:per_class_f1_1pct", "tab:semi_supervised",
                  "tab:all_runs", "tab:design", "app:", "appendices", "IEEEtran", "IEEEkeywords", "IEEEauthor"):

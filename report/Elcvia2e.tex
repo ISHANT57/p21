@@ -245,7 +245,7 @@ The training ran in several Colab and Kaggle sessions. The run folders of all 52
 \subsection{Supervised label efficiency}
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.78\textwidth]{\figdir/label_efficiency_f1.png}
+\includegraphics[width=0.70\textwidth]{\figdir/label_efficiency_f1.png}
 \caption{Test macro-F1 against the share of labelled training images (mean $\pm$ std over three seeds at 1\% and 10\%; one seed at 100\%). The pretrained models lose 8--10 points from 100\% to 1\% of the labels; the scratch CNN loses 21--23.}
 \label{fig:label_efficiency}
 \end{figure}
@@ -258,7 +258,7 @@ Matched on seed (full table in the repository), the models compare as follows. A
 \subsection{Value of the extra spectral bands}
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.52\textwidth]{\figdir/rgb_vs_ms_gain.png}
+\includegraphics[width=0.46\textwidth]{\figdir/rgb_vs_ms_gain.png}
 \caption{Gain in test macro-F1 of 13-band over RGB input; bars are the mean over seeds, dots single seeds. The gain is largest for the scratch CNN and small for the pretrained models.}
 \label{fig:gain}
 \end{figure}
@@ -276,18 +276,18 @@ The pipeline's band ablation (Table~\ref{tab:band_ablation}) feeds subsets of th
 \subsection{Pseudo-labelling}\label{sec:pl}
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.62\textwidth]{\figdir/pseudo_label_gain.png}
+\includegraphics[width=0.56\textwidth]{\figdir/pseudo_label_gain.png}
 \caption{Change in test macro-F1 of each pseudo-label student against its own teacher (same model, input, fraction and seed); bars are means, dots single seeds. Students help most at 1\% of the labels.}
 \label{fig:pl}
 \end{figure}
-Pseudo-labelling helps when labels are scarcest (Figure~\ref{fig:pl}, Table~\\ref{tab:pl_details}). ResNet-50 students beat their teachers by 2.4 points on RGB and 2.3 on 13 bands at 1\% of the labels (individual students: +2.2 to +2.4), and by 0.2 points on both at 10\% (+0.1 to +0.3), in both seeds each. A pseudo-labelled ResNet-50 at 1\% (RGB 90.9\%, 13 bands 92.0\%) reaches the supervised ViT-Small at 1\% (90.7\% and 91.2\%). The two scratch CNN students (one seed each) gain 1.8 points at 1\% and lose 0.5 points at 10\%, so for the weaker model the benefit is not consistent. The threshold shows why 10\% teachers add little: at 10\% labels, ResNet-50 teachers reach 95\% validation precision already at the lowest allowed $\tau=0.50$ and keep 99.7--99.8\% of the pool, so the students see mostly images the teacher already classifies correctly. At 1\% labels, $\tau$ was 0.87--0.94 with validation precision 0.950--0.952, keeping 85--91\% of the pool. The scratch CNN teacher at 1\% never reached 95\% precision ($\tau=0.99$, precision 0.893) and kept 64\% of the pool, so its pseudo-labels are noisier; the one at 10\% reached it at $\tau=0.65$ and kept 95\% of the pool. Checked against the hidden labels of the pool, the pseudo-labels are 94.5--95.4\% correct for ResNet-50 at 1\% of the labels, 96.8--97.6\% at 10\%, and 89.9\% and 94.7\% for the scratch CNN at 1\% and 10\%; in every case the validation precision at $\tau$ is within 0.6 points of this accuracy, so the validation-based threshold estimated the quality of the pseudo-labels well. A check on a deliberately weak teacher (outside these runs) showed that a global $\tau$ can leave whole classes without pseudo-labels; the class-balanced variant that addresses this was not run.
+Pseudo-labelling helps when labels are scarcest (Figure~\ref{fig:pl}, Table~\ref{tab:pl_details}). ResNet-50 students beat their teachers by 2.4 points on RGB and 2.3 on 13 bands at 1\% of the labels (individual students: +2.2 to +2.4), and by 0.2 points on both at 10\% (+0.1 to +0.3), in both seeds each. A pseudo-labelled ResNet-50 at 1\% (RGB 90.9\%, 13 bands 92.0\%) reaches the supervised ViT-Small at 1\% (90.7\% and 91.2\%). The two scratch CNN students (one seed each) gain 1.8 points at 1\% and lose 0.5 points at 10\%, so for the weaker model the benefit is not consistent. The threshold shows why 10\% teachers add little: at 10\% labels, ResNet-50 teachers reach 95\% validation precision already at the lowest allowed $\tau=0.50$ and keep 99.7--99.8\% of the pool, so the students see mostly images the teacher already classifies correctly. At 1\% labels, $\tau$ was 0.87--0.94 with validation precision 0.950--0.952, keeping 85--91\% of the pool. The scratch CNN teacher at 1\% never reached 95\% precision ($\tau=0.99$, precision 0.893) and kept 64\% of the pool, so its pseudo-labels are noisier; the one at 10\% reached it at $\tau=0.65$ and kept 95\% of the pool. Checked against the hidden labels of the pool, the pseudo-labels are 94.5--95.4\% correct for ResNet-50 at 1\% of the labels, 96.8--97.6\% at 10\%, and 89.9\% and 94.7\% for the scratch CNN at 1\% and 10\%; in every case the validation precision at $\tau$ is within 0.6 points of this accuracy, so the validation-based threshold estimated the quality of the pseudo-labels well. A check on a deliberately weak teacher (outside these runs) showed that a global $\tau$ can leave whole classes without pseudo-labels; the class-balanced variant that addresses this was not run.
 
 \input{\tabdir/pl_details.tex}
 
 \subsection{Error analysis}
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.75\textwidth]{\figdir/confusion_1pct.png}
+\includegraphics[width=0.64\textwidth]{\figdir/confusion_1pct.png}
 \caption{Row-normalised confusion matrices of ViT-Small at 1\% labels, RGB and 13 bands, mean of three seeds. The confusions are mostly among vegetation classes (Pasture, PermanentCrop, HerbaceousVegetation, AnnualCrop).}
 \label{fig:confusion}
 \end{figure}
